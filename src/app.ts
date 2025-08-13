@@ -9,6 +9,9 @@ import { authRoutes } from './routes/auth.routes';
 import { jobRoutes } from './routes/job.routes';
 import { resumeRoutes } from './routes/resume.routes';
 import { createResponse } from './utils/response';
+import candidateRoutes from "./routes/candidate.routes";
+import botRoutes from "./routes/bot.routes";
+import { TelegramHiringBotService } from './services/telegramBot.service';
 
 // Load environment variables
 dotenv.config();
@@ -41,6 +44,8 @@ app.get('/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/jobs', jobRoutes);
 app.use('/api/resume', resumeRoutes);
+app.use("/api/candidates", candidateRoutes);
+app.use("/api/bot", botRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {
@@ -74,6 +79,8 @@ const startServer = async () => {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`📊 Health check: http://localhost:${PORT}/health`);
       console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+      new TelegramHiringBotService();
+      console.log("🤖 Telegram bot is running...");
     });
   } catch (error) {
     console.error('Failed to start server:', error);
