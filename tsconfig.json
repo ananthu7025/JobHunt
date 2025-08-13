@@ -10,9 +10,9 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true
+    "declaration": false,         // ❌ No .d.ts
+    "declarationMap": false,      // ❌ No .d.ts.map
+    "sourceMap": false            // ❌ No .js.map
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
