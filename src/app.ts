@@ -12,6 +12,7 @@ import { createResponse } from './utils/response';
 import candidateRoutes from "./routes/candidate.routes";
 import botRoutes from "./routes/bot.routes";
 import { TelegramHiringBotService } from './services/telegramBot.service';
+import { questionSetRoutes } from './routes/questionSet.routes';
 
 // Load environment variables
 dotenv.config();
@@ -46,6 +47,7 @@ app.use('/api/jobs', jobRoutes);
 app.use('/api/resume', resumeRoutes);
 app.use("/api/candidates", candidateRoutes);
 app.use("/api/bot", botRoutes);
+app.use('/api/questionSets', questionSetRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {

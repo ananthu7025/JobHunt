@@ -1,5 +1,6 @@
-import mongoose, { Document, Schema } from "mongoose";
-import { CandidateResponses } from "../config/questions";
+import mongoose, { Schema, Document } from 'mongoose';
+import { Question } from '../config/questions';
+import { CandidateResponses } from '../config/questions';
 
 export interface CandidateDocument extends Document {
   telegramId: string;
@@ -8,12 +9,14 @@ export interface CandidateDocument extends Document {
   lastName?: string;
   currentStep: number;
   responses: CandidateResponses;
+  questions: Question[];
+  setId: string;
   isCompleted: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
 
-const candidateSchema = new Schema<CandidateDocument>({
+const candidateSchema: Schema = new Schema({
   telegramId: { type: String, required: true, unique: true },
   username: String,
   firstName: String,
@@ -31,9 +34,11 @@ const candidateSchema = new Schema<CandidateDocument>({
     portfolio: String,
     additionalInfo: String,
   },
+  questions: [{ type: Object, required: true }],
+  setId: { type: String, required: true },
   isCompleted: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
 });
 
-export const Candidate = mongoose.model<CandidateDocument>("Candidate", candidateSchema);
+export const Candidate = mongoose.model<CandidateDocument>('Candidate', candidateSchema);
