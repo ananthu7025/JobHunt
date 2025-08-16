@@ -1,174 +1,294 @@
 // src/services/candidate.service.ts
 import { Candidate, CandidateDocument } from "../models/candidate.model";
-import { ResumeScore } from "../models/ResumeScore.model";
-import { QuestionSetService } from "./questionSet.service";
 import mongoose from "mongoose";
 
+interface CandidateData {
+  telegramId: string;
+  username?: string;
+  firstName?: string;
+  lastName?: string;
+  currentStep: number;
+  questionSetId: mongoose.Types.ObjectId;
+}
+
 export const CandidateService = {
-  async createOrGet(telegramId: string, userData: Partial<CandidateDocument>) {
-    let candidate = await Candidate.findOne({ telegramId });
-    
-    if (!candidate) {
-      // If no question set specified, use default
-      if (!userData.questionSetId) {
-        const defaultQuestionSet = await QuestionSetService.getDefault();
-        if (!defaultQuestionSet) {
-          throw new Error("No default question set available");
-        }
-        userData.questionSetId = defaultQuestionSet._id;
+  // Get candidate by telegram ID for a specific question set (job)
+  async getByTelegramIdAndQuestionSet(telegramId: string, questionSetId: string): Promise<CandidateDocument | null> {
+    try {
+      return await Candidate.findOne({ 
+        telegramId, 
+        questionSetId: new mongoose.Types.ObjectId(questionSetId)
+      });
+    } catch (error) {
+      console.error('Error getting candidate by telegramId and questionSetId:', error);
+      return null;
+    }
+  },
+
+  // Get the most recent application for a telegram user (prioritize incomplete ones)
+  async getByTelegramId(telegramId: string): Promise<CandidateDocument | null> {
+    try {
+      return await Candidate.findOne({ telegramId })
+        .sort({ isCompleted: 1, updatedAt: -1 }); // incomplete first, then by most recent
+    } catch (error) {
+      console.error('Error getting candidate by telegramId:', error);
+      return null;
+    }
+  },
+
+  // Get all applications for a telegram user
+  async getAllByTelegramId(telegramId: string): Promise<CandidateDocument[]> {
+    try {
+      return await Candidate.find({ telegramId })
+        .populate('questionSetId')
+        .sort({ createdAt: -1 });
+    } catch (error) {
+      console.error('Error getting all candidates by telegramId:', error);
+      return [];
+    }
+  },
+
+  // Get active (incomplete) application for a telegram user
+  async getActiveByTelegramId(telegramId: string): Promise<CandidateDocument | null> {
+    try {
+      return await Candidate.findOne({ 
+        telegramId, 
+        isCompleted: false 
+      }).sort({ updatedAt: -1 });
+    } catch (error) {
+      console.error('Error getting active candidate by telegramId:', error);
+      return null;
+    }
+  },
+
+  // Create new candidate application or get existing one for specific job
+  async createOrGet(telegramId: string, candidateData: CandidateData): Promise<CandidateDocument> {
+    try {
+      // Check if candidate already exists for this specific question set
+      const existingCandidate = await Candidate.findOne({
+        telegramId,
+        questionSetId: candidateData.questionSetId
+      });
+
+      if (existingCandidate) {
+        // Update existing candidate data if needed
+        existingCandidate.username = candidateData.username || existingCandidate.username;
+        existingCandidate.firstName = candidateData.firstName || existingCandidate.firstName;
+        existingCandidate.lastName = candidateData.lastName || existingCandidate.lastName;
+        existingCandidate.updatedAt = new Date();
+        
+        await existingCandidate.save();
+        return existingCandidate;
       }
-      
-      // Ensure questionSetId is stored as ObjectId, not the full document
-      if (userData.questionSetId && typeof userData.questionSetId === 'object' && userData.questionSetId._id) {
-        userData.questionSetId = userData.questionSetId._id;
-      }
-      
-      candidate = new Candidate(userData);
+
+      // Create new candidate application for this job
+      const newCandidate = new Candidate({
+        telegramId: candidateData.telegramId,
+        username: candidateData.username,
+        firstName: candidateData.firstName,
+        lastName: candidateData.lastName,
+        currentStep: candidateData.currentStep,
+        questionSetId: candidateData.questionSetId,
+        responses: {},
+        isCompleted: false
+      });
+
+      await newCandidate.save();
+      return newCandidate;
+    } catch (error) {
+      console.error('Error creating or getting candidate:', error);
+      throw error;
+    }
+  },
+
+  // Create a new candidate application
+  async create(candidateData: CandidateData): Promise<CandidateDocument> {
+    try {
+      const candidate = new Candidate({
+        telegramId: candidateData.telegramId,
+        username: candidateData.username,
+        firstName: candidateData.firstName,
+        lastName: candidateData.lastName,
+        currentStep: candidateData.currentStep,
+        questionSetId: candidateData.questionSetId,
+        responses: {},
+        isCompleted: false
+      });
+
       await candidate.save();
-    } else {
-      // Update existing candidate with new question set if provided
-      if (userData.questionSetId) {
-        // Extract ObjectId if full document is passed
-        const newQuestionSetId = typeof userData.questionSetId === 'object' && userData.questionSetId._id 
-          ? userData.questionSetId._id 
-          : userData.questionSetId;
-          
-        if (newQuestionSetId.toString() !== candidate.questionSetId.toString()) {
-          candidate.questionSetId = newQuestionSetId;
-          candidate.currentStep = 0; // Reset progress for new question set
-          candidate.responses = {}; // Clear previous responses
-          candidate.isCompleted = false;
-          await candidate.save();
-        }
+      return candidate;
+    } catch (error) {
+      console.error('Error creating candidate:', error);
+      throw error;
+    }
+  },
+
+  // Update candidate
+  async update(candidateId: string, updateData: Partial<CandidateDocument>): Promise<CandidateDocument | null> {
+    try {
+      return await Candidate.findByIdAndUpdate(
+        candidateId, 
+        { ...updateData, updatedAt: new Date() }, 
+        { new: true }
+      );
+    } catch (error) {
+      console.error('Error updating candidate:', error);
+      return null;
+    }
+  },
+
+  // Delete all applications for a telegram user
+  async delete(telegramId: string): Promise<boolean> {
+    try {
+      await Candidate.deleteMany({ telegramId });
+      return true;
+    } catch (error) {
+      console.error('Error deleting candidates:', error);
+      return false;
+    }
+  },
+
+  // Delete specific application
+  async deleteApplication(telegramId: string, questionSetId: string): Promise<boolean> {
+    try {
+      await Candidate.deleteOne({ 
+        telegramId, 
+        questionSetId: new mongoose.Types.ObjectId(questionSetId)
+      });
+      return true;
+    } catch (error) {
+      console.error('Error deleting specific application:', error);
+      return false;
+    }
+  },
+
+  // Get candidate by ID
+  async getById(candidateId: string): Promise<CandidateDocument | null> {
+    try {
+      return await Candidate.findById(candidateId).populate('questionSetId');
+    } catch (error) {
+      console.error('Error getting candidate by ID:', error);
+      return null;
+    }
+  },
+
+  // Get all candidates for a specific question set (job applications)
+  async getByQuestionSetId(questionSetId: string): Promise<CandidateDocument[]> {
+    try {
+      return await Candidate.find({ 
+        questionSetId: new mongoose.Types.ObjectId(questionSetId) 
+      }).sort({ createdAt: -1 });
+    } catch (error) {
+      console.error('Error getting candidates by question set ID:', error);
+      return [];
+    }
+  },
+
+  // Get completed applications for a specific question set
+  async getCompletedByQuestionSetId(questionSetId: string): Promise<CandidateDocument[]> {
+    try {
+      return await Candidate.find({ 
+        questionSetId: new mongoose.Types.ObjectId(questionSetId),
+        isCompleted: true
+      }).sort({ createdAt: -1 });
+    } catch (error) {
+      console.error('Error getting completed candidates by question set ID:', error);
+      return [];
+    }
+  },
+
+  // Check if user has applied for a specific job
+  async hasAppliedForJob(telegramId: string, questionSetId: string): Promise<boolean> {
+    try {
+      const application = await Candidate.findOne({
+        telegramId,
+        questionSetId: new mongoose.Types.ObjectId(questionSetId)
+      });
+      return !!application;
+    } catch (error) {
+      console.error('Error checking if user applied for job:', error);
+      return false;
+    }
+  },
+
+  // Get application status for a specific job
+  async getApplicationStatus(telegramId: string, questionSetId: string): Promise<{
+    exists: boolean;
+    isCompleted: boolean;
+    progress: { current: number; total: number } | null;
+    application: CandidateDocument | null;
+  }> {
+    try {
+      const application = await Candidate.findOne({
+        telegramId,
+        questionSetId: new mongoose.Types.ObjectId(questionSetId)
+      }).populate('questionSetId');
+
+      if (!application) {
+        return {
+          exists: false,
+          isCompleted: false,
+          progress: null,
+          application: null
+        };
       }
+
+      const questionSet = application.questionSetId as any;
+      const totalQuestions = questionSet?.questions?.length || 0;
+
+      return {
+        exists: true,
+        isCompleted: application.isCompleted,
+        progress: {
+          current: application.currentStep,
+          total: totalQuestions
+        },
+        application
+      };
+    } catch (error) {
+      console.error('Error getting application status:', error);
+      return {
+        exists: false,
+        isCompleted: false,
+        progress: null,
+        application: null
+      };
     }
-    
-    return candidate;
   },
 
-  async update(telegramId: string, updateData: Partial<CandidateDocument>) {
-    return Candidate.findOneAndUpdate(
-      { telegramId }, 
-      { ...updateData, updatedAt: new Date() }, 
-      { new: true }
-    );
-  },
+  // Get statistics for admin/HR
+  async getStats(): Promise<{
+    total: number;
+    completed: number;
+    inProgress: number;
+    withResume: number;
+  }> {
+    try {
+      const total = await Candidate.countDocuments();
+      const completed = await Candidate.countDocuments({ isCompleted: true });
+      const inProgress = await Candidate.countDocuments({ isCompleted: false });
+      const withResume = await Candidate.countDocuments({ 
+        $and: [
+          { 'responses.resumeFileName': { $exists: true } },
+          { 'responses.resumeFileName': { $ne: null } },
+          { 'responses.resumeFileName': { $ne: '' } }
+        ]
+      });
 
-  async delete(telegramId: string) {
-    return Candidate.findOneAndDelete({ telegramId });
-  },
-
-  // FIXED: Don't populate questionSetId when it will be used as an ID
-  async getByTelegramId(telegramId: string) {
-    return Candidate.findOne({ telegramId });
-  },
-
-  // Separate method for when you need the populated questionSet data
-  async getByTelegramIdWithQuestionSet(telegramId: string) {
-    return Candidate.findOne({ telegramId }).populate('questionSetId');
-  },
-
-  async getAll(filter: any = {}) {
-    return Candidate.find(filter)
-      .populate('questionSetId', 'title description')
-      .sort({ createdAt: -1 });
-  },
-
-  async getAllWithQuestionSet(questionSetId?: string) {
-    const filter = questionSetId ? { questionSetId } : {};
-    return Candidate.find(filter)
-      .populate('questionSetId', 'title description')
-      .sort({ createdAt: -1 });
-  },
-
-  async getStats(questionSetId?: string) {
-    const filter = questionSetId ? { questionSetId } : {};
-    
-    const [total, completed, byQuestionSet] = await Promise.all([
-      Candidate.countDocuments(filter),
-      Candidate.countDocuments({ ...filter, isCompleted: true }),
-      Candidate.aggregate([
-        { $match: filter },
-        {
-          $group: {
-            _id: '$questionSetId',
-            total: { $sum: 1 },
-            completed: {
-              $sum: { $cond: [{ $eq: ['$isCompleted', true] }, 1, 0] }
-            }
-          }
-        },
-        {
-          $lookup: {
-            from: 'questionsets',
-            localField: '_id',
-            foreignField: '_id',
-            as: 'questionSet'
-          }
-        },
-        {
-          $unwind: '$questionSet'
-        },
-        {
-          $project: {
-            questionSetTitle: '$questionSet.title',
-            total: 1,
-            completed: 1,
-            completionRate: {
-              $multiply: [
-                { $divide: ['$completed', '$total'] },
-                100
-              ]
-            }
-          }
-        }
-      ])
-    ]);
-
-    return {
-      totalCandidates: total,
-      completedApplications: completed,
-      inProgressApplications: total - completed,
-      completionRate: total > 0 ? ((completed / total) * 100).toFixed(2) : "0",
-      byQuestionSet
-    };
-  },
-
-  async getResponsesByField(questionSetId: string, field: string) {
-    const candidates = await Candidate.find({
-      questionSetId,
-      isCompleted: true,
-      [`responses.${field}`]: { $exists: true, $ne: null }
-    });
-
-    return candidates.map(candidate => ({
-      telegramId: candidate.telegramId,
-      response: candidate.responses[field],
-      createdAt: candidate.createdAt
-    }));
-  },
-
-  async rankCandidates(jobId: string, limit: number = 10) {
-    if (!mongoose.Types.ObjectId.isValid(jobId)) {
-      throw new Error("Invalid jobId format");
+      return {
+        total,
+        completed,
+        inProgress,
+        withResume
+      };
+    } catch (error) {
+      console.error('Error getting candidate stats:', error);
+      return {
+        total: 0,
+        completed: 0,
+        inProgress: 0,
+        withResume: 0
+      };
     }
-
-    return ResumeScore.aggregate([
-      { $match: { jobId: new mongoose.Types.ObjectId(jobId) } },
-      { $sort: { "scores.overall": -1 } },
-      { $limit: limit },
-      {
-        $project: {
-          _id: 1,
-          candidateName: 1,
-          candidateEmail: 1,
-          overallScore: "$scores.overall",
-          skillsMatch: "$scores.skillsMatch",
-          experienceMatch: "$scores.experienceMatch",
-          jobId: 1,
-          resumeFileName: 1,
-        },
-      },
-    ]);
   }
 };

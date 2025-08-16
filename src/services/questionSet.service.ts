@@ -1,5 +1,6 @@
 // src/services/questionSet.service.ts
-import { QuestionSet, IQuestionSet } from "../models/QuestionSet.model";
+import { QuestionSet } from "../models/QuestionSet.model";
+import { IQuestionSet } from "../types";
 
 export const QuestionSetService = {
   async getById(id: string): Promise<IQuestionSet | null> {
@@ -29,6 +30,16 @@ export const QuestionSetService = {
     } catch (error) {
       console.error('Error getting active question sets:', error);
       return [];
+    }
+  },
+
+  async getByJobId(jobId: string): Promise<IQuestionSet | null> {
+    try {
+      return await QuestionSet.findOne({ jobId: jobId, isActive: true })
+        .populate('createdBy', 'name email');
+    } catch (error) {
+      console.error('Error getting question set by Job ID:', error);
+      return null;
     }
   },
 
