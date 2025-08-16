@@ -3,6 +3,7 @@ import { ResumeScore, JobDescription } from '../models';
 import { GeminiService } from './gemini.service';
 import { PDFService } from './pdf.service';
 import { IScanRequest, IResumeScore } from '../types';
+import { sendEmail } from './email.service';
 import fs from 'fs';
 import path from 'path';
 
@@ -12,73 +13,122 @@ export class ResumeService {
   // -----------------------
   // Instance Methods
   // -----------------------
-  async scanResume(
-    filePath: string,
-    fileName: string,
-    scanRequest: IScanRequest,
-    scannedBy: string
-  ): Promise<IResumeScore> {
-    try {
-      // Extract text from resume
-      const resumeText = await PDFService.extractTextFromPDF(filePath);
+async scanResume(
+  filePath: string,
+  fileName: string,
+  scanRequest: IScanRequest,
+  scannedBy: string
+): Promise<IResumeScore> {
+  console.log(`\n[scanResume] Started`);
+  console.log(`[scanResume] FilePath: ${filePath}, FileName: ${fileName}, JobId: ${scanRequest.jobId}, ScannedBy: ${scannedBy}`);
 
-      // Get job description
-      const jobDescription = await JobDescription.findById(scanRequest.jobId);
-      if (!jobDescription) throw new Error('Job description not found');
+  try {
+    // Extract text from resume
+    console.log(`[scanResume] Extracting text from PDF...`);
+    const resumeText = await PDFService.extractTextFromPDF(filePath);
+    console.log(`[scanResume] Extracted text length: ${resumeText?.length || 0}`);
 
-      // Analyze with Gemini
-      const analysis = await this.geminiService.analyzeResume(
-        resumeText,
-        jobDescription,
-        scanRequest.additionalRequirements,
-        scanRequest.weightage
-      );
-
-      // Extract candidate info (fallback to PDF extraction)
-      const pdfCandidateInfo = await PDFService.extractCandidateInfo(resumeText);
-      const candidateInfo = {
-        name: analysis.candidate_info?.name || pdfCandidateInfo.name || 'Unknown Candidate',
-        email: analysis.candidate_info?.email || pdfCandidateInfo.email,
-        phone: analysis.candidate_info?.phone || pdfCandidateInfo.phone
-      };
-
-      // Create ResumeScore record
-      const resumeScore = new ResumeScore({
-        candidateName: candidateInfo.name,
-        candidateEmail: candidateInfo.email,
-        candidatePhone: candidateInfo.phone,
-        resumeText,
-        jobId: scanRequest.jobId,
-        scores: {
-          overall: analysis.overall_score,
-          skillsMatch: analysis.skills_match_score,
-          experienceMatch: analysis.experience_match_score,
-          educationMatch: analysis.education_match_score,
-          keywordsMatch: analysis.keywords_match_score,
-        },
-        analysis: {
-          matchedSkills: analysis.matched_skills,
-          missingSkills: analysis.missing_skills,
-          experienceAnalysis: analysis.experience_analysis,
-          strengthsAndWeaknesses: analysis.strengths_and_weaknesses,
-          recommendations: analysis.recommendations,
-        },
-        resumeFileName: fileName,
-        scannedBy,
-      });
-
-      await resumeScore.save();
-
-      // Cleanup uploaded file
-      await ResumeService.deleteFile(filePath);
-
-      return resumeScore;
-    } catch (error) {
-      console.error('Error scanning resume:', error);
-      await ResumeService.deleteFile(filePath);
-      throw error;
+    // Get job description
+    console.log(`[scanResume] Fetching JobDescription with ID: ${scanRequest.jobId}`);
+    const jobDescription = await JobDescription.findById(scanRequest.jobId);
+    if (!jobDescription) {
+      console.error(`[scanResume] ❌ Job description not found for ID: ${scanRequest.jobId}`);
+      throw new Error('Job description not found');
     }
+    console.log(`[scanResume] ✅ Job description fetched: ${jobDescription.title}`);
+
+    // Analyze with Gemini
+    console.log(`[scanResume] Sending resume for Gemini analysis...`);
+    const analysis = await this.geminiService.analyzeResume(
+      resumeText,
+      jobDescription,
+      scanRequest.additionalRequirements,
+      scanRequest.weightage
+    );
+    console.log(`[scanResume] ✅ Gemini analysis complete. Overall Score: ${analysis.overall_score}`);
+
+    // Extract candidate info
+    console.log(`[scanResume] Extracting candidate info from PDF...`);
+    const pdfCandidateInfo = await PDFService.extractCandidateInfo(resumeText);
+    const candidateInfo = {
+      name: analysis.candidate_info?.name || pdfCandidateInfo.name || 'Unknown Candidate',
+      email: analysis.candidate_info?.email || pdfCandidateInfo.email,
+      phone: analysis.candidate_info?.phone || pdfCandidateInfo.phone
+    };
+    console.log(`[scanResume] Candidate Info: Name=${candidateInfo.name}, Email=${candidateInfo.email}, Phone=${candidateInfo.phone}`);
+
+    // Create ResumeScore record
+    console.log(`[scanResume] Creating ResumeScore record...`);
+    const resumeScore = new ResumeScore({
+      candidateName: candidateInfo.name,
+      candidateEmail: candidateInfo.email,
+      candidatePhone: candidateInfo.phone,
+      resumeText,
+      jobId: scanRequest.jobId,
+      scores: {
+        overall: analysis.overall_score,
+        skillsMatch: analysis.skills_match_score,
+        experienceMatch: analysis.experience_match_score,
+        educationMatch: analysis.education_match_score,
+        keywordsMatch: analysis.keywords_match_score,
+      },
+      analysis: {
+        matchedSkills: analysis.matched_skills,
+        missingSkills: analysis.missing_skills,
+        experienceAnalysis: analysis.experience_analysis,
+        strengthsAndWeaknesses: analysis.strengths_and_weaknesses,
+        recommendations: analysis.recommendations,
+      },
+      resumeFileName: fileName,
+      scannedBy,
+    });
+
+    await resumeScore.save();
+    console.log(`[scanResume] ✅ ResumeScore saved with ID: ${resumeScore._id}`);
+
+    // Send email to HR
+    if (jobDescription.hrEmail) {
+      console.log(`[scanResume] Sending email to HR: ${jobDescription.hrEmail}`);
+      const coverLetter = `
+        <p>Hi,</p>
+        <p>I am writing to express my interest in the ${jobDescription.title} position. I have attached my resume for your review.</p>
+        <p>Thank you for your time and consideration.</p>
+        <p>Sincerely,</p>
+        <p>${candidateInfo.name}</p>
+      `;
+
+      await sendEmail({
+        to: jobDescription.hrEmail,
+        subject: `Application for ${jobDescription.title}: ${candidateInfo.name}`,
+        html: coverLetter,
+        replyTo: candidateInfo.email,
+        attachments: [
+          {
+            filename: fileName,
+            path: filePath,
+            contentType: 'application/pdf',
+          },
+        ],
+      });
+      console.log(`[scanResume] ✅ Email sent successfully`);
+    }
+
+    // Cleanup uploaded file
+    console.log(`[scanResume] Deleting uploaded file: ${filePath}`);
+    await ResumeService.deleteFile(filePath);
+    console.log(`[scanResume] ✅ File deleted`);
+
+    console.log(`[scanResume] Completed successfully`);
+    return resumeScore;
+
+  } catch (error) {
+    console.error(`[scanResume] ❌ Error occurred:`, error);
+    console.log(`[scanResume] Cleaning up uploaded file: ${filePath}`);
+    await ResumeService.deleteFile(filePath);
+    throw error;
   }
+}
+
 
   async getResumeScores(filters: {
     jobId?: string;

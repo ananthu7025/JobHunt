@@ -3,12 +3,14 @@ import TelegramBot from "node-telegram-bot-api";
 import { CandidateService } from "../services/candidate.service";
 import { QuestionSetService } from "../services/questionSet.service";
 import { CandidateDocument } from "../models/candidate.model";
-import { IQuestion, IQuestionSet } from "../models/QuestionSet.model";
+import { IQuestion, IQuestionSet } from "../types";
 import { ValidationHelper } from "../utils/validation";
 import mongoose from "mongoose";
 import fs from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
+import { ResumeService } from "./resume.service";
+import { JobDescription } from "../models";
 
 export class TelegramHiringBotService {
   private bot: TelegramBot;
@@ -38,6 +40,41 @@ export class TelegramHiringBotService {
     this.bot.on("document", (msg: any) => this.handleDocument(msg));
     
     this.bot.on("message", (msg: any) => this.handleMessage(msg));
+  }
+
+  // New helper method for triggering resume scan and email
+  private async triggerResumeProcessing(candidate: CandidateDocument, questionSet: IQuestionSet): Promise<boolean> {
+    console.log(questionSet._id,"unswidhuwhduwhd")
+    try {
+      console.log(`[triggerResumeProcessing] Starting resume processing for candidate: ${candidate.telegramId}`);
+      
+      if (!candidate.responses['resumeFilePath'] || !candidate.responses['resumeFileName']) {
+        console.log(`[triggerResumeProcessing] Resume not found, skipping email processing`);
+        return false;
+      }
+
+      const resumeService = new ResumeService();
+      const job = await JobDescription.findById(questionSet.jobId);
+      console.log(`[triggerResumeProcessing] Job fetched:`, job ? job._id : null);
+
+      if (job && job.hrEmail) {
+        console.log(`[triggerResumeProcessing] Sending resume scan to HR Email: ${job.hrEmail}`);
+        await resumeService.scanResume(
+          candidate.responses['resumeFilePath'],
+          candidate.responses['resumeFileName'],
+          { jobId: questionSet.jobId.toString() },
+          candidate._id.toString()
+        );
+        console.log(`[triggerResumeProcessing] Resume scan and email triggered successfully.`);
+        return true;
+      } else {
+        console.warn(`[triggerResumeProcessing] Job or hrEmail not found, skipping resume scan.`);
+        return false;
+      }
+    } catch (error) {
+      console.error('[triggerResumeProcessing] Error during resume processing:', error);
+      return false;
+    }
   }
 
   private async handleUploadCommand(msg: TelegramBot.Message) {
@@ -137,12 +174,29 @@ export class TelegramHiringBotService {
         await this.bot.deleteMessage(chatId, processingMsg.message_id);
 
         // Send success message
-        const successMessage = `✅ *Resume Uploaded Successfully!*\n\n` +
+        let successMessage = `✅ *Resume Uploaded Successfully!*\n\n` +
           `📄 File: ${document.file_name}\n` +
           `📏 Size: ${this.formatFileSize(document.file_size || 0)}\n` +
-          `📅 Uploaded: ${new Date().toLocaleDateString()}\n\n` +
-          `Your resume has been saved and will be reviewed along with your application.\n\n` +
-          `Use /status to see your complete application status.`;
+          `📅 Uploaded: ${new Date().toLocaleDateString()}\n\n`;
+
+        // CRITICAL FIX: Check if application is completed and trigger email
+        if (candidate.isCompleted) {
+          console.log(`[handleDocument] Application already completed, triggering resume processing...`);
+          const questionSet = await QuestionSetService.getById(candidate.questionSetId.toString());
+          
+          if (questionSet) {
+            const emailSent = await this.triggerResumeProcessing(candidate, questionSet);
+            if (emailSent) {
+              successMessage += "📧 Your resume has been sent to our HR team for review!\n\n";
+            } else {
+              successMessage += "⚠️ Resume saved but email could not be sent. Please contact support.\n\n";
+            }
+          }
+        } else {
+          successMessage += "Your resume has been saved and will be reviewed along with your application.\n\n";
+        }
+
+        successMessage += "Use /status to see your complete application status.";
 
         await this.bot.sendMessage(chatId, successMessage, { parse_mode: "Markdown" });
 
@@ -226,7 +280,7 @@ export class TelegramHiringBotService {
             if (field.startsWith('resume')) continue;
             
             if (value && typeof value === 'string') {
-              const question = questionSet.questions.find(q => q.field === field);
+              const question = questionSet.questions.find((q: { field: string; }) => q.field === field);
               const label = question ? question.field.charAt(0).toUpperCase() + question.field.slice(1) : field;
               const truncatedValue = value.length > 50 ? value.substring(0, 47) + '...' : value;
               message += `• *${label}*: ${truncatedValue}\n`;
@@ -344,7 +398,6 @@ export class TelegramHiringBotService {
     }
   }
 
-  // Keep all other existing methods unchanged...
   private async handleListQuestionSets(msg: TelegramBot.Message) {
     try {
       const chatId = msg.chat.id;
@@ -441,47 +494,72 @@ export class TelegramHiringBotService {
     response: string
   ) {
     try {
+      console.log(`\n[processResponse] ChatID: ${chatId}, CandidateID: ${candidate.telegramId}`);
+      console.log(`Current Step: ${candidate.currentStep}, Response Received: "${response}"`);
+
       const currentQuestion = questionSet.questions.find(q => q.step === candidate.currentStep + 1);
-      if (!currentQuestion) return;
+      if (!currentQuestion) {
+        console.warn(`[processResponse] No question found for step ${candidate.currentStep + 1}`);
+        return;
+      }
+      console.log(`[processResponse] Current Question: ${currentQuestion.field}`);
 
       const validation = ValidationHelper.validateResponse(currentQuestion, response);
-      
+      console.log(`[processResponse] Validation result:`, validation);
+
       if (!validation.isValid) {
         const helpMessage = ValidationHelper.getValidationMessage(currentQuestion);
+        console.log(`[processResponse] Validation failed: ${validation.message}`);
         this.bot.sendMessage(chatId, `❌ ${validation.message}\n\n💡 ${helpMessage}`);
         return;
       }
 
+      // Save candidate response
       candidate.responses[currentQuestion.field] = response.trim();
       candidate.currentStep++;
       candidate.updatedAt = new Date();
+      console.log(`[processResponse] Response saved. Current Step now: ${candidate.currentStep}`);
 
       if (candidate.currentStep >= questionSet.questions.length) {
         candidate.isCompleted = true;
         await candidate.save();
-        
+        console.log(`[processResponse] Application completed for candidate: ${candidate.telegramId}`);
+
         let completionMessage = `🎉 *Application Submitted Successfully!*\n\n`;
         completionMessage += `📋 Question Set: ${questionSet.title}\n\n`;
         completionMessage += "Thank you for completing your application. ";
         completionMessage += "Our team will review it and get back to you soon.\n\n";
-        
-        // Remind about resume if not uploaded
-        if (!candidate.responses['resumeFileName']) {
+
+        // Check if resume is uploaded and process it
+        const hasResume = candidate.responses['resumeFileName'];
+        if (!hasResume) {
+          console.log(`[processResponse] Candidate has not uploaded resume.`);
           completionMessage += "💡 Don't forget to upload your resume using /upload to complete your profile!\n\n";
+        } else {
+          console.log(`[processResponse] Candidate has uploaded resume. Triggering scan...`);
+          const emailSent = await this.triggerResumeProcessing(candidate, questionSet);
+          if (emailSent) {
+            completionMessage += "📧 Your resume has been sent to our HR team for review.\n\n";
+          } else {
+            completionMessage += "⚠️ Resume uploaded but email could not be sent. Please contact support.\n\n";
+          }
         }
-        
+
         completionMessage += "Use /status to view your application details anytime.";
-        
         this.bot.sendMessage(chatId, completionMessage, { parse_mode: "Markdown" });
+
       } else {
         await candidate.save();
-        
+        console.log(`[processResponse] Saved candidate progress. Asking next question in 500ms...`);
+
         setTimeout(() => {
+          console.log(`[processResponse] Calling askNextQuestion for step ${candidate.currentStep + 1}`);
           this.askNextQuestion(chatId, candidate, questionSet);
         }, 500);
       }
+
     } catch (error) {
-      console.error('Error in processResponse:', error);
+      console.error('[processResponse] Error:', error);
       this.bot.sendMessage(chatId, '❌ An error occurred saving your response. Please try again.');
     }
   }

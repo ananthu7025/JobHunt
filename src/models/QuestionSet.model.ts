@@ -1,30 +1,6 @@
 // src/models/QuestionSet.model.ts
 import mongoose, { Schema, Document } from 'mongoose';
-
-export interface IQuestion {
-  step: number;
-  field: string;
-  question: string;
-  validation: {
-    type: 'text' | 'email' | 'phone' | 'number' | 'url' | 'custom';
-    minLength?: number;
-    maxLength?: number;
-    pattern?: string;
-    customValidation?: string; // For custom validation logic
-  };
-  isRequired: boolean;
-}
-
-export interface IQuestionSet extends Document {
-  title: string;
-  description?: string;
-  questions: IQuestion[];
-  isActive: boolean;
-  isDefault: boolean;
-  createdBy: mongoose.Types.ObjectId;
-  createdAt: Date;
-  updatedAt: Date;
-}
+import { IQuestion, IQuestionSet } from '../types';
 
 const questionSchema = new Schema<IQuestion>({
   step: { type: Number, required: true },
@@ -47,6 +23,11 @@ const questionSchema = new Schema<IQuestion>({
 const questionSetSchema = new Schema<IQuestionSet>({
   title: { type: String, required: true, trim: true },
   description: { type: String, trim: true },
+  jobId: {
+    type: Schema.Types.ObjectId,
+    ref: 'JobDescription',
+    required: true,
+  },
   questions: [questionSchema],
   isActive: { type: Boolean, default: true },
   isDefault: { type: Boolean, default: false },

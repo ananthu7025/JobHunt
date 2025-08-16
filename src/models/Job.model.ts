@@ -12,6 +12,11 @@ const jobSchema = new Schema<IJobDescription>({
     required: true,
     trim: true,
   },
+  hrEmail: {
+    type: String,
+    required: true,
+    trim: true,
+  },
   description: {
     type: String,
     required: true,

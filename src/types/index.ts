@@ -16,6 +16,7 @@ export interface IJobDescription extends Document {
   _id: string;
   title: string;
   company: string;
+  hrEmail: string;
   description: string;
   requiredSkills: string[];
   preferredSkills?: string[];
@@ -126,8 +127,36 @@ export interface ICandidate extends Document {
     expectedSalary?: string;
     portfolio?: string;
     additionalInfo?: string;
+    [key: string]: any;
   };
   isCompleted: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  questionSetId: Types.ObjectId;
+}
+
+export interface IQuestion {
+  step: number;
+  field: string;
+  question: string;
+  validation: {
+    type: 'text' | 'email' | 'phone' | 'number' | 'url' | 'custom';
+    minLength?: number;
+    maxLength?: number;
+    pattern?: string;
+    customValidation?: string; // For custom validation logic
+  };
+  isRequired: boolean;
+}
+
+export interface IQuestionSet extends Document {
+  title: string;
+  description?: string;
+  jobId: Types.ObjectId;
+  questions: IQuestion[];
+  isActive: boolean;
+  isDefault: boolean;
+  createdBy: Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
 }

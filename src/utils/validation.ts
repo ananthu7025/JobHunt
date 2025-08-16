@@ -64,7 +64,11 @@ export const jobSchemas = {
     salaryRange: Joi.object({
       min: Joi.number().positive().required(),
       max: Joi.number().positive().greater(Joi.ref('min')).required()
-    }).optional()
+    }).optional(),
+    hrEmail: Joi.string().email().required().messages({
+      'string.email': 'HR email must be a valid email address',
+      'any.required': 'HR email is required'
+    }),
   }),
 
   update: Joi.object({
@@ -79,7 +83,10 @@ export const jobSchemas = {
     salaryRange: Joi.object({
       min: Joi.number().positive().required(),
       max: Joi.number().positive().greater(Joi.ref('min')).required()
-    }).optional()
+    }).optional(),
+    hrEmail: Joi.string().email().optional().messages({
+      'string.email': 'HR email must be a valid email address'
+    })
   }).min(1)
 };
 
@@ -98,7 +105,7 @@ export const resumeSchemas = {
   })
 };
 // src/utils/validation.helper.ts
-import { IQuestion } from "../models/QuestionSet.model";
+import { IQuestion } from "../types";
 
 export class ValidationHelper {
   static validateResponse(question: IQuestion, response: string): { isValid: boolean; message?: string } {
