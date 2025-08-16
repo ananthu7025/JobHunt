@@ -30,6 +30,64 @@ export class GeminiService {
     }
   }
 
+  async generateCoverLetter(
+    candidateName: string,
+    resumeText: string,
+    jobDescription: IJobDescription
+  ): Promise<string> {
+    try {
+      const prompt = this.createCoverLetterPrompt(
+        candidateName,
+        resumeText,
+        jobDescription
+      );
+
+      const result = await this.model.generateContent(prompt);
+      const response = await result.response;
+      return response.text();
+    } catch (error) {
+      console.error('Gemini API error:', error);
+      // Fallback to a simple template
+      return `
+        <p>Hi,</p>
+        <p>I am writing to express my interest in the ${jobDescription.title} position. I have attached my resume for your review.</p>
+        <p>Thank you for your time and consideration.</p>
+        <p>Sincerely,</p>
+        <p>${candidateName}</p>
+      `;
+    }
+  }
+
+  private createCoverLetterPrompt(
+    candidateName: string,
+    resumeText: string,
+    jobDescription: IJobDescription
+  ): string {
+    return `
+You are a professional career coach. Write a compelling and personalized cover letter for a candidate applying for a job.
+
+**Candidate Name:**
+${candidateName}
+
+**Job Description:**
+Title: ${jobDescription.title}
+Company: ${jobDescription.company}
+Description: ${jobDescription.description}
+Required Skills: ${jobDescription.requiredSkills.join(', ')}
+
+**Candidate's Resume Text:**
+${resumeText}
+
+Please write a cover letter in HTML format. The cover letter should:
+1. Be addressed to the hiring manager.
+2. Express strong interest in the ${jobDescription.title} position.
+3. Highlight the candidate's most relevant skills and experiences from their resume that match the job description.
+4. Be professional, concise, and engaging.
+5. End with a call to action, such as requesting an interview.
+6. The entire response should be the HTML of the cover letter, without any other text or markdown.
+`;
+  }
+
   private createAnalysisPrompt(
     resumeText: string,
     jobDescription: IJobDescription,

@@ -89,13 +89,11 @@ async scanResume(
     // Send email to HR
     if (jobDescription.hrEmail) {
       console.log(`[scanResume] Sending email to HR: ${jobDescription.hrEmail}`);
-      const coverLetter = `
-        <p>Hi,</p>
-        <p>I am writing to express my interest in the ${jobDescription.title} position. I have attached my resume for your review.</p>
-        <p>Thank you for your time and consideration.</p>
-        <p>Sincerely,</p>
-        <p>${candidateInfo.name}</p>
-      `;
+      const coverLetter = await this.geminiService.generateCoverLetter(
+        candidateInfo.name,
+        resumeText,
+        jobDescription
+      );
 
       await sendEmail({
         to: jobDescription.hrEmail,
