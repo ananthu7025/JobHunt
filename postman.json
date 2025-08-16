@@ -544,6 +544,102 @@
             },
             "description": "Get a ranked list of top candidates for a specific job based on their resume scores"
           }
+        },
+        {
+          "name": "Get Candidates With Resumes",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/candidates/with-resumes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "candidates",
+                "with-resumes"
+              ]
+            },
+            "description": "Get a list of candidates who have submitted resumes"
+          }
+        },
+        {
+          "name": "Get Resume Info",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/candidates/{{telegramId}}/resume",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "candidates",
+                "{{telegramId}}",
+                "resume"
+              ]
+            },
+            "description": "Get resume information for a specific candidate"
+          }
+        },
+        {
+          "name": "Download Resume",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/candidates/{{telegramId}}/resume/download",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "candidates",
+                "{{telegramId}}",
+                "resume",
+                "download"
+              ]
+            },
+            "description": "Download a candidate's resume"
+          }
+        },
+        {
+          "name": "Delete Resume",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/candidates/{{telegramId}}/resume",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "candidates",
+                "{{telegramId}}",
+                "resume"
+              ]
+            },
+            "description": "Delete a candidate's resume"
+          }
         }
       ],
       "description": "Candidate management endpoints for Telegram bot applications"

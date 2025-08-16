@@ -68,6 +68,10 @@ All endpoints are prefixed with `/api`.
 -   `GET /:telegramId`: Get a candidate by their Telegram ID.
 -   `DELETE /:telegramId`: Delete a candidate by their Telegram ID.
 -   `GET /questionset/:questionSetId/responses/:field`: Get candidate responses for a specific field in a question set.
+-   `GET /with-resumes`: Get a list of candidates who have submitted resumes.
+-   `GET /:telegramId/resume`: Get resume information for a specific candidate.
+-   `GET /:telegramId/resume/download`: Download a candidate's resume.
+-   `DELETE /:telegramId/resume`: Delete a candidate's resume.
 
 ### Question Set Management (`/question-sets`)
 
