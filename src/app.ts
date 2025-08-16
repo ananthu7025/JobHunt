@@ -8,6 +8,7 @@ import { connectDatabase } from './config/database';
 import { authRoutes } from './routes/auth.routes';
 import { jobRoutes } from './routes/job.routes';
 import { resumeRoutes } from './routes/resume.routes';
+import { questionSetRoutes } from './routes/questionSet.routes';
 import { createResponse } from './utils/response';
 import candidateRoutes from "./routes/candidate.routes";
 import botRoutes from "./routes/bot.routes";
@@ -44,6 +45,7 @@ app.get('/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/jobs', jobRoutes);
 app.use('/api/resume', resumeRoutes);
+app.use('/api/questionsets', questionSetRoutes);
 app.use("/api/candidates", candidateRoutes);
 app.use("/api/bot", botRoutes);
 

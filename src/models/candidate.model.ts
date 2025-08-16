@@ -1,5 +1,5 @@
+// src/models/candidate.model.ts
 import mongoose, { Document, Schema } from "mongoose";
-import { CandidateResponses } from "../config/questions";
 
 export interface CandidateDocument extends Document {
   telegramId: string;
@@ -7,8 +7,9 @@ export interface CandidateDocument extends Document {
   firstName?: string;
   lastName?: string;
   currentStep: number;
-  responses: CandidateResponses;
+  responses: { [key: string]: string }; // Dynamic responses based on question set
   isCompleted: boolean;
+  questionSetId: mongoose.Types.ObjectId; // Reference to the question set used
   createdAt: Date;
   updatedAt: Date;
 }
@@ -20,18 +21,15 @@ const candidateSchema = new Schema<CandidateDocument>({
   lastName: String,
   currentStep: { type: Number, default: 0 },
   responses: {
-    name: String,
-    email: String,
-    phone: String,
-    position: String,
-    experience: String,
-    skills: String,
-    availability: String,
-    expectedSalary: String,
-    portfolio: String,
-    additionalInfo: String,
+    type: Schema.Types.Mixed, // Allows dynamic fields
+    default: {}
   },
   isCompleted: { type: Boolean, default: false },
+  questionSetId: {
+    type: Schema.Types.ObjectId,
+    ref: 'QuestionSet',
+    required: true
+  },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
 });

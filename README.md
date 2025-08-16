@@ -7,9 +7,19 @@ A Node.js/TypeScript backend API for scanning and analyzing resumes against job 
 - **User Authentication**: JWT-based authentication with role-based access (HR/Admin)
 - **Job Management**: CRUD operations for job descriptions
 - **Resume Analysis**: AI-powered resume scanning and scoring using Gemini AI
+- **Candidate Ranking**: Rank candidates based on their overall resume score for a specific job.
 - **File Upload**: Support for PDF, DOC, and DOCX resume files
 - **Scoring System**: Comprehensive scoring based on skills, experience, education, and keywords
 - **Data Persistence**: MongoDB integration with Mongoose ODM
+- **Telegram Bot Integration**: Manage candidates and question sets through a Telegram bot.
+
+## User Journey (HR Perspective)
+
+1.  **Register and Log In**: An HR user registers for an account and logs in to receive a JWT token for authenticating subsequent requests.
+2.  **Create a Job Description**: The HR user creates a new job description, specifying the title, required skills, experience, and other relevant details.
+3.  **Scan Resumes**: The HR user scans resumes for the created job. The system analyzes each resume against the job description, generating a detailed score.
+4.  **Rank Candidates**: After scanning multiple resumes, the HR user can retrieve a ranked list of the top candidates for the job based on their overall scores.
+5.  **Manage Candidates via Telegram (Optional)**: The HR user can use a Telegram bot to interact with candidates, manage question sets, and view statistics.
 
 ## Tech Stack
 
@@ -24,22 +34,57 @@ A Node.js/TypeScript backend API for scanning and analyzing resumes against job 
 
 ## API Endpoints
 
-### Authentication
-- `POST /api/auth/register` - Register new user
-- `POST /api/auth/login` - User login
-- `GET /api/auth/profile` - Get user profile (protected)
+All endpoints are prefixed with `/api`.
 
-### Job Management
-- `POST /api/jobs` - Create job description (protected)
-- `GET /api/jobs` - Get all jobs (protected)
-- `GET /api/jobs/:id` - Get job by ID (protected)
-- `PUT /api/jobs/:id` - Update job (protected)
-- `DELETE /api/jobs/:id` - Delete job (protected)
+### Authentication (`/auth`)
 
-### Resume Analysis
-- `POST /api/resume/scan` - Scan resume against job (protected, file upload)
-- `GET /api/resume/scores` - Get resume scores with filtering (protected)
-- `GET /api/resume/scores/:id` - Get specific resume score (protected)
+-   `POST /register`: Register a new user.
+-   `POST /login`: Log in an existing user and receive a JWT token.
+-   `GET /profile`: Get the profile of the currently authenticated user.
+
+### Job Management (`/jobs`)
+
+-   `POST /`: Create a new job description.
+-   `GET /`: Get a list of all job descriptions.
+-   `GET /:id`: Get a specific job description by its ID.
+-   `PUT /:id`: Update an existing job description.
+-   `DELETE /:id`: Delete a job description.
+
+### Resume Analysis (`/resume`)
+
+-   `POST /scan`: Scan a resume against a job description. Requires a file upload and a `jobId`.
+-   `GET /scores`: Get a list of all resume scores, with optional filtering.
+-   `GET /scores/:id`: Get a specific resume score by its ID.
+
+### Candidate Management (`/candidates`)
+
+-   `GET /`: Get a list of all completed candidates.
+-   `GET /all`: Get a list of all candidates, including incomplete ones.
+-   `GET /stats`: Get statistics about candidates.
+-   `GET /export`: Export candidate data.
+-   `GET /rank`: Get a ranked list of top candidates for a specific job. Requires a `jobId` query parameter.
+-   `GET /:telegramId`: Get a candidate by their Telegram ID.
+-   `DELETE /:telegramId`: Delete a candidate by their Telegram ID.
+-   `GET /questionset/:questionSetId/responses/:field`: Get candidate responses for a specific field in a question set.
+
+### Question Set Management (`/question-sets`)
+
+-   `POST /`: Create a new question set.
+-   `GET /`: Get a list of all question sets.
+-   `GET /active`: Get a list of all active question sets.
+-   `GET /:id`: Get a specific question set by its ID.
+-   `PUT /:id`: Update an existing question set.
+-   `DELETE /:id`: Delete a question set.
+-   `POST /:id/duplicate`: Duplicate an existing question set.
+-   `PATCH /:id/set-default`: Set a question set as the default.
+
+### Telegram Bot (`/bot`)
+
+-   `GET /stats`: Get statistics about the bot.
+-   `GET /info`: Get information about the bot.
+-   `GET /questionsets`: Get a list of all question sets available to the bot.
+-   `POST /questionsets/set-active`: Set the active question set for the bot.
+-   `POST /broadcast`: Send a broadcast message to all candidates.
 
 ## Environment Variables
 
@@ -56,29 +101,26 @@ CORS_ORIGIN=http://localhost:3000
 
 ## Installation & Setup
 
-1. **Install dependencies**:
-   ```bash
-   npm install
-   ```
+1.  **Install dependencies**:
+    ```bash
+    npm install
+    ```
+2.  **Set up environment variables**:
+    -   Copy the environment variables above to your `.env` file
+    -   Replace `your_jwt_secret_key_here` with a secure random string
+    -   Replace `your_gemini_api_key_here` with your Google Gemini API key
+3.  **Start MongoDB**:
+    -   Make sure MongoDB is running on your system
+    -   Default connection: `mongodb://localhost:27017/resume_scanner`
+4.  **Run the application**:
+    ```bash
+    # Development mode
+    npm run dev
 
-2. **Set up environment variables**:
-   - Copy the environment variables above to your `.env` file
-   - Replace `your_jwt_secret_key_here` with a secure random string
-   - Replace `your_gemini_api_key_here` with your Google Gemini API key
-
-3. **Start MongoDB**:
-   - Make sure MongoDB is running on your system
-   - Default connection: `mongodb://localhost:27017/resume_scanner`
-
-4. **Run the application**:
-   ```bash
-   # Development mode
-   npm run dev
-   
-   # Production build
-   npm run build
-   npm start
-   ```
+    # Production build
+    npm run build
+    npm start
+    ```
 
 ## Project Structure
 
@@ -119,6 +161,7 @@ src/
 ## Usage Examples
 
 ### Register a new user
+
 ```bash
 curl -X POST http://localhost:5000/api/auth/register \
   -H "Content-Type: application/json" \
@@ -131,6 +174,7 @@ curl -X POST http://localhost:5000/api/auth/register \
 ```
 
 ### Create a job description
+
 ```bash
 curl -X POST http://localhost:5000/api/jobs \
   -H "Content-Type: application/json" \
@@ -147,6 +191,7 @@ curl -X POST http://localhost:5000/api/jobs \
 ```
 
 ### Scan a resume
+
 ```bash
 curl -X POST http://localhost:5000/api/resume/scan \
   -H "Authorization: Bearer YOUR_JWT_TOKEN" \
@@ -154,36 +199,45 @@ curl -X POST http://localhost:5000/api/resume/scan \
   -F "jobId=JOB_ID_HERE"
 ```
 
+### Rank Candidates
+
+```bash
+curl -X GET "http://localhost:5000/api/candidates/rank?jobId=JOB_ID_HERE&limit=5" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
 ## Resume Scoring
 
 The system provides comprehensive scoring based on:
 
-- **Skills Match** (30%): How well candidate skills match job requirements
-- **Experience Match** (25%): Relevance of candidate experience
-- **Education Match** (20%): Educational background alignment
-- **Keywords Match** (25%): Presence of job-specific keywords
+-   **Skills Match** (30%): How well candidate skills match job requirements
+-   **Experience Match** (25%): Relevance of candidate experience
+-   **Education Match** (20%): Educational background alignment
+-   **Keywords Match** (25%): Presence of job-specific keywords
 
 Each resume analysis includes:
-- Overall score (0-100)
-- Individual category scores
-- Matched and missing skills
-- Experience analysis
-- Strengths and weaknesses
-- Improvement recommendations
+
+-   Overall score (0-100)
+-   Individual category scores
+-   Matched and missing skills
+-   Experience analysis
+-   Strengths and weaknesses
+-   Improvement recommendations
 
 ## Security Features
 
-- JWT-based authentication
-- Password hashing with bcryptjs
-- Role-based access control
-- Request validation with Joi
-- File upload restrictions
-- CORS protection
-- Security headers with Helmet
+-   JWT-based authentication
+-   Password hashing with bcryptjs
+-   Role-based access control
+-   Request validation with Joi
+-   File upload restrictions
+-   CORS protection
+-   Security headers with Helmet
 
 ## Error Handling
 
-The API uses consistent error response format:
+The API uses a consistent error response format:
+
 ```json
 {
   "success": false,
@@ -194,11 +248,11 @@ The API uses consistent error response format:
 
 ## Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
+1.  Fork the repository
+2.  Create a feature branch
+3.  Make your changes
+4.  Add tests if applicable
+5.  Submit a pull request
 
 ## License
 

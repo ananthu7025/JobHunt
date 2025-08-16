@@ -1,7 +1,11 @@
+// src/services/telegramBot.service.ts
 import TelegramBot from "node-telegram-bot-api";
 import { CandidateService } from "../services/candidate.service";
-import { CandidateResponses, questions } from "../config/questions";
+import { QuestionSetService } from "../services/questionSet.service";
 import { CandidateDocument } from "../models/candidate.model";
+import { IQuestion, IQuestionSet } from "../models/QuestionSet.model";
+import { ValidationHelper } from "../utils/validation";
+import mongoose from "mongoose";
 
 export class TelegramHiringBotService {
   private bot: TelegramBot;
@@ -13,16 +17,20 @@ export class TelegramHiringBotService {
   }
 
   private setupHandlers() {
-    this.bot.onText(/\/start/, (msg: any) => this.handleStart(msg));
+    this.bot.onText(/\/start(?:\s+(.+))?/, (msg: any, match: any) => this.handleStart(msg, match));
     this.bot.onText(/\/restart/, (msg: any) => this.handleRestart(msg));
     this.bot.onText(/\/status/, (msg: any) => this.handleStatus(msg));
+    this.bot.onText(/\/questsets/, (msg: any) => this.handleListQuestionSets(msg));
     this.bot.on("message", (msg: any) => this.handleMessage(msg));
   }
 
-  private async handleStart(msg: TelegramBot.Message) {
+  private async handleStart(msg: TelegramBot.Message, match: any) {
     try {
       const chatId = msg.chat.id;
       const telegramId = msg.from?.id.toString() || "";
+      
+      // Extract question set ID from command (e.g., /start 60f7b3b3b3b3b3b3b3b3b3b3)
+      const questionSetId = match && match[1] ? match[1] : null;
 
       let candidate = await CandidateService.getByTelegramId(telegramId);
 
@@ -31,18 +39,84 @@ export class TelegramHiringBotService {
         return;
       }
 
+      // Get the question set to use
+      let questionSet: IQuestionSet | null = null;
+
+      if (questionSetId) {
+        // Validate ObjectId format before querying
+        if (mongoose.Types.ObjectId.isValid(questionSetId)) {
+          questionSet = await QuestionSetService.getById(questionSetId);
+          if (!questionSet) {
+            this.bot.sendMessage(chatId, "❌ Invalid question set ID. Using default question set.");
+          }
+        } else {
+          this.bot.sendMessage(chatId, "❌ Invalid question set ID format. Using default question set.");
+        }
+      }
+
+      if (!questionSet) {
+        questionSet = await QuestionSetService.getDefault();
+      }
+
+      if (!questionSet) {
+        this.bot.sendMessage(chatId, "❌ No question sets available. Please contact administrator.");
+        return;
+      }
+
+      // Create or update candidate with the question set
       candidate = await CandidateService.createOrGet(telegramId, {
         telegramId,
         username: msg.from?.username,
         firstName: msg.from?.first_name,
         lastName: msg.from?.last_name,
         currentStep: 0,
+        questionSetId: questionSet._id, // This is now properly handled in createOrGet
       });
 
-      this.askNextQuestion(chatId, candidate);
+      // Welcome message with question set info
+      let welcomeMessage = `🎯 *${questionSet.title}*\n\n`;
+      if (questionSet.description) {
+        welcomeMessage += `${questionSet.description}\n\n`;
+      }
+      welcomeMessage += `📝 This application has ${questionSet.questions.length} questions.\n`;
+      welcomeMessage += `⏱️ It should take about ${Math.ceil(questionSet.questions.length / 2)} minutes to complete.\n\n`;
+
+      await this.bot.sendMessage(chatId, welcomeMessage, { parse_mode: "Markdown" });
+      
+      this.askNextQuestion(chatId, candidate, questionSet);
     } catch (error) {
       console.error('Error in handleStart:', error);
       this.bot.sendMessage(msg.chat.id, '❌ An error occurred. Please try again.');
+    }
+  }
+
+  private async handleListQuestionSets(msg: TelegramBot.Message) {
+    try {
+      const chatId = msg.chat.id;
+      const questionSets = await QuestionSetService.getActive();
+
+      if (!questionSets || questionSets.length === 0) {
+        this.bot.sendMessage(chatId, "❌ No active question sets available.");
+        return;
+      }
+
+      let message = "📋 *Available Question Sets*\n\n";
+      
+      for (const qs of questionSets) {
+        message += `🔹 *${qs.title}*${qs.isDefault ? ' (Default)' : ''}\n`;
+        if (qs.description) {
+          message += `   ${qs.description}\n`;
+        }
+        message += `   📝 ${qs.questions.length} questions\n`;
+        message += `   Command: /start ${qs._id}\n\n`;
+      }
+
+      message += "💡 Use `/start <question-set-id>` to begin with a specific question set.";
+
+      await this.bot.sendMessage(chatId, message, { parse_mode: "Markdown" });
+    } catch (error) {
+      console.error('Error in handleListQuestionSets:', error);
+      this.bot.sendMessage(msg.chat.id, '❌ An error occurred while fetching question sets.');
     }
   }
 
@@ -53,16 +127,7 @@ export class TelegramHiringBotService {
       
       await CandidateService.delete(telegramId);
       
-      const candidate = await CandidateService.createOrGet(telegramId, {
-        telegramId,
-        username: msg.from?.username,
-        firstName: msg.from?.first_name,
-        lastName: msg.from?.last_name,
-        currentStep: 0,
-      });
-      
-      this.bot.sendMessage(chatId, "🔄 Process restarted!");
-      this.askNextQuestion(chatId, candidate);
+      this.bot.sendMessage(chatId, "🔄 Process restarted! Use /start to begin again or /questsets to see available question sets.");
     } catch (error) {
       console.error('Error in handleRestart:', error);
       this.bot.sendMessage(msg.chat.id, '❌ An error occurred while restarting. Please try again.');
@@ -76,58 +141,56 @@ export class TelegramHiringBotService {
       const candidate = await CandidateService.getByTelegramId(telegramId);
 
       if (!candidate) {
-        this.bot.sendMessage(chatId, "❌ No application found. Use /start to begin.");
+        this.bot.sendMessage(chatId, "❌ No application found. Use /start to begin or /questsets to see available question sets.");
+        return;
+      }
+
+      // FIXED: Now candidate.questionSetId is properly an ObjectId, not a populated document
+      const questionSet = await QuestionSetService.getById(candidate.questionSetId.toString());
+
+      if (!questionSet) {
+        this.bot.sendMessage(chatId, "❌ Question set not found. Please restart your application.");
         return;
       }
 
       if (candidate.isCompleted) {
         let message = "📊 *Application Status*\n✅ Completed\n\n";
+        message += `📋 *Question Set*: ${questionSet.title}\n\n`;
         
-        // Define the expected fields to match your CandidateResponses interface
-        const fields = [
-          { key: 'name', label: '👤 Name' },
-          { key: 'email', label: '📧 Email' },
-          { key: 'phone', label: '📱 Phone' },
-          { key: 'position', label: '💼 Position' },
-          { key: 'experience', label: '🎯 Experience' },
-          { key: 'skills', label: '🛠️ Skills' },
-          { key: 'availability', label: '📅 Availability' },
-          { key: 'expectedSalary', label: '💰 Expected Salary' },
-          { key: 'portfolio', label: '🌐 Portfolio' },
-          { key: 'additionalInfo', label: '💭 Additional Info' }
-        ];
-
-        // Only include actual response fields, not Mongoose internals
-        for (const field of fields) {
-          const value = candidate.responses[field.key as keyof typeof candidate.responses];
-          if (value && typeof value === 'string') {
-            // Truncate long values to prevent message overflow
-            const truncatedValue = value.length > 50 ? value.substring(0, 47) + '...' : value;
-            message += `• *${field.label}*: ${truncatedValue}\n`;
+        // Show responses
+        const responses = Object.entries(candidate.responses);
+        if (responses.length > 0) {
+          message += "*Your Responses:*\n";
+          let responseCount = 0;
+          for (const [field, value] of responses) {
+            if (value && typeof value === 'string') {
+              const question = questionSet.questions.find(q => q.field === field);
+              const label = question ? question.field.charAt(0).toUpperCase() + question.field.slice(1) : field;
+              const truncatedValue = value.length > 50 ? value.substring(0, 47) + '...' : value;
+              message += `• *${label}*: ${truncatedValue}\n`;
+              responseCount++;
+              
+              // Limit to prevent message overflow
+              if (responseCount >= 8) {
+                message += "• ... (and more)\n";
+                break;
+              }
+            }
           }
         }
 
-        // Add submission date
         if (candidate.createdAt) {
           message += `\n📅 *Submitted*: ${candidate.createdAt.toLocaleDateString()}\n`;
         }
 
-        // Check if message is still too long (Telegram limit is ~4096 chars)
-        if (message.length > 4000) {
-          message = "📊 *Application Status*\n✅ Completed\n\n";
-          message += "✨ Your application has been successfully submitted!\n";
-          if (candidate.createdAt) {
-            message += `📅 Submitted: ${candidate.createdAt.toLocaleDateString()}\n`;
-          }
-          message += "\n💡 Contact admin for full application details.";
-        }
-
         await this.bot.sendMessage(chatId, message, { parse_mode: "Markdown" });
       } else {
-        const progress = `${candidate.currentStep}/${questions.length}`;
-        const percentage = Math.round((candidate.currentStep / questions.length) * 100);
+        const totalQuestions = questionSet.questions.length;
+        const progress = `${candidate.currentStep}/${totalQuestions}`;
+        const percentage = Math.round((candidate.currentStep / totalQuestions) * 100);
         
         let message = `⏳ *Application Status*\n`;
+        message += `📋 *Question Set*: ${questionSet.title}\n`;
         message += `📊 Progress: ${progress} (${percentage}%)\n`;
         
         if (candidate.createdAt) {
@@ -153,58 +216,61 @@ export class TelegramHiringBotService {
       const candidate = await CandidateService.getByTelegramId(telegramId);
       
       if (!candidate) {
-        this.bot.sendMessage(chatId, "❌ Please start with /start");
+        this.bot.sendMessage(chatId, "❌ Please start with /start or use /questsets to see available question sets");
         return;
       }
       
       if (candidate.isCompleted) {
-        this.bot.sendMessage(chatId, "✅ You already completed the application.");
+        this.bot.sendMessage(chatId, "✅ You already completed the application. Use /restart to start over.");
+        return;
+      }
+
+      // FIXED: Now candidate.questionSetId is properly an ObjectId
+      const questionSet = await QuestionSetService.getById(candidate.questionSetId.toString());
+      
+      if (!questionSet) {
+        this.bot.sendMessage(chatId, "❌ Question set not found. Please use /restart to start over.");
         return;
       }
       
-      await this.processResponse(chatId, candidate, msg.text);
+      await this.processResponse(chatId, candidate, questionSet, msg.text);
     } catch (error) {
       console.error('Error in handleMessage:', error);
       this.bot.sendMessage(msg.chat.id, '❌ An error occurred processing your message. Please try again.');
     }
   }
 
-  private async processResponse(chatId: number, candidate: CandidateDocument, response: string) {
+  private async processResponse(
+    chatId: number, 
+    candidate: CandidateDocument, 
+    questionSet: IQuestionSet,
+    response: string
+  ) {
     try {
-      const currentQuestion = questions.find(q => q.step === candidate.currentStep + 1);
+      const currentQuestion = questionSet.questions.find(q => q.step === candidate.currentStep + 1);
       if (!currentQuestion) return;
 
-      if (!currentQuestion.validation(response)) {
-        // Provide specific validation messages based on field
-        const fieldMessages: Record<keyof CandidateResponses, string> = {
-          name: "Please provide a valid name (at least 3 characters).",
-          email: "Please provide a valid email address (example@domain.com).",
-          phone: "Please provide a valid phone number (at least 9 characters).",
-          position: "Please specify the position you're applying for.",
-          experience: "Please provide your years of experience (number or text like '3 years').",
-          skills: "Please list your skills (at least 10 characters, separated by commas).",
-          availability: "Please specify when you can start working.",
-          expectedSalary: "Please provide your expected salary range.",
-          portfolio: "Please provide a portfolio link or type 'none'.",
-          additionalInfo: "Please share some additional information (at least 5 characters)."
-        };
-
-        const validationMessage = fieldMessages[currentQuestion.field] || 'Please provide a valid response.';
-        this.bot.sendMessage(chatId, `❌ ${validationMessage}`);
+      // Validate response using the dynamic validation
+      const validation = ValidationHelper.validateResponse(currentQuestion, response);
+      
+      if (!validation.isValid) {
+        const helpMessage = ValidationHelper.getValidationMessage(currentQuestion);
+        this.bot.sendMessage(chatId, `❌ ${validation.message}\n\n💡 ${helpMessage}`);
         return;
       }
 
       // Store the response
-      candidate.responses[currentQuestion.field] = response;
+      candidate.responses[currentQuestion.field] = response.trim();
       candidate.currentStep++;
       candidate.updatedAt = new Date();
 
-      if (candidate.currentStep >= questions.length) {
+      if (candidate.currentStep >= questionSet.questions.length) {
         candidate.isCompleted = true;
         await candidate.save();
         
-        // Send completion message with summary
-        let completionMessage = "🎉 *Application Submitted Successfully!*\n\n";
+        // Send completion message
+        let completionMessage = `🎉 *Application Submitted Successfully!*\n\n`;
+        completionMessage += `📋 Question Set: ${questionSet.title}\n\n`;
         completionMessage += "Thank you for completing your application. ";
         completionMessage += "Our team will review it and get back to you soon.\n\n";
         completionMessage += "Use /status to view your application details anytime.";
@@ -215,7 +281,7 @@ export class TelegramHiringBotService {
         
         // Small delay before asking next question for better UX
         setTimeout(() => {
-          this.askNextQuestion(chatId, candidate);
+          this.askNextQuestion(chatId, candidate, questionSet);
         }, 500);
       }
     } catch (error) {
@@ -224,65 +290,22 @@ export class TelegramHiringBotService {
     }
   }
 
-  private askNextQuestion(chatId: number, candidate: CandidateDocument) {
+  private askNextQuestion(chatId: number, candidate: CandidateDocument, questionSet: IQuestionSet) {
     try {
-      const nextQuestion = questions.find(q => q.step === candidate.currentStep + 1);
+      const nextQuestion = questionSet.questions.find(q => q.step === candidate.currentStep + 1);
       if (nextQuestion) {
-        const progress = `[${candidate.currentStep + 1}/${questions.length}] `;
+        const progress = `[${candidate.currentStep + 1}/${questionSet.questions.length}] `;
         const questionText = progress + nextQuestion.question;
         
-        this.bot.sendMessage(chatId, questionText);
+        // Add validation hint if needed
+        const validationHint = ValidationHelper.getValidationMessage(nextQuestion);
+        const fullMessage = validationHint ? `${questionText}\n\n💡 ${validationHint}` : questionText;
+        
+        this.bot.sendMessage(chatId, fullMessage);
       }
     } catch (error) {
       console.error('Error in askNextQuestion:', error);
       this.bot.sendMessage(chatId, '❌ An error occurred. Please try /restart to begin again.');
-    }
-  }
-
-  // Utility method to split long messages if needed
-  private async sendLongMessage(chatId: number, fullMessage: string, parseMode: "Markdown" | "HTML" = "Markdown") {
-    const maxLength = 4000; // Leave buffer under Telegram's 4096 limit
-    
-    if (fullMessage.length <= maxLength) {
-      await this.bot.sendMessage(chatId, fullMessage, { parse_mode: parseMode });
-      return;
-    }
-
-    // Split message into chunks
-    const chunks = [];
-    let currentChunk = "";
-    
-    const lines = fullMessage.split('\n');
-    
-    for (const line of lines) {
-      if ((currentChunk + line + '\n').length > maxLength) {
-        if (currentChunk) {
-          chunks.push(currentChunk.trim());
-          currentChunk = line + '\n';
-        } else {
-          // Single line is too long, truncate it
-          chunks.push(line.substring(0, maxLength - 3) + '...');
-        }
-      } else {
-        currentChunk += line + '\n';
-      }
-    }
-    
-    if (currentChunk.trim()) {
-      chunks.push(currentChunk.trim());
-    }
-
-    // Send chunks with small delay
-    for (let i = 0; i < chunks.length; i++) {
-      const chunk = chunks[i];
-      const prefix = i === 0 ? '' : `📄 *Part ${i + 1}/${chunks.length}*\n\n`;
-      
-      await this.bot.sendMessage(chatId, prefix + chunk, { parse_mode: parseMode });
-      
-      // Small delay between messages to avoid rate limits
-      if (i < chunks.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
     }
   }
 

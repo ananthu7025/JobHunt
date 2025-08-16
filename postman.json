@@ -1,8 +1,8 @@
 {
   "info": {
-    "name": "Resume Scanner API",
-    "description": "Complete API collection for Resume Scanner application with MongoDB, Node.js, and Google Gemini AI integration",
-    "version": "1.0.0",
+    "name": "JobHunt API - Telegram Hiring Bot",
+    "description": "Complete API collection for JobHunt application with MongoDB, Node.js, Telegram Bot integration, and Google Gemini AI for resume analysis",
+    "version": "2.0.0",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -18,7 +18,7 @@
   "variable": [
     {
       "key": "baseUrl",
-      "value": "http://localhost:5000/api",
+      "value": "http://localhost:3000/api",
       "type": "string"
     },
     {
@@ -33,6 +33,21 @@
     },
     {
       "key": "jobId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "questionSetId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "candidateId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "telegramId",
       "value": "",
       "type": "string"
     },
@@ -86,7 +101,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"John Doe\",\n  \"email\": \"john.doe@example.com\",\n  \"password\": \"password123\",\n  \"role\": \"hr\"\n}"
+              "raw": "{\n  \"name\": \"HR Manager\",\n  \"email\": \"hr@company.com\",\n  \"password\": \"password123\",\n  \"role\": \"hr\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/auth/register",
@@ -135,7 +150,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"john.doe@example.com\",\n  \"password\": \"password123\"\n}"
+              "raw": "{\n  \"email\": \"hr@company.com\",\n  \"password\": \"password123\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/auth/login",
@@ -185,10 +200,10 @@
       "description": "Authentication endpoints for user registration, login, and profile management"
     },
     {
-      "name": "💼 Job Management",
+      "name": "❓ Question Set Management",
       "item": [
         {
-          "name": "Create Job Description",
+          "name": "Create Question Set",
           "event": [
             {
               "listen": "test",
@@ -197,11 +212,11 @@
                   "if (pm.response.code === 201) {",
                   "    const response = pm.response.json();",
                   "    if (response.success && response.data) {",
-                  "        pm.collectionVariables.set('jobId', response.data._id);",
-                  "        pm.test('Job created successfully', () => {",
+                  "        pm.collectionVariables.set('questionSetId', response.data._id);",
+                  "        pm.test('Question set created successfully', () => {",
                   "            pm.expect(response.success).to.be.true;",
                   "            pm.expect(response.data.title).to.exist;",
-                  "            pm.expect(response.data.requiredSkills).to.be.an('array');",
+                  "            pm.expect(response.data.questions).to.be.an('array');",
                   "        });",
                   "    }",
                   "}"
@@ -224,7 +239,453 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"title\": \"Senior Full Stack Developer\",\n  \"company\": \"TechCorp Inc.\",\n  \"description\": \"We are looking for an experienced Full Stack Developer to join our team. The ideal candidate will have strong skills in both frontend and backend development, with experience in modern web technologies.\",\n  \"requiredSkills\": [\n    \"JavaScript\",\n    \"TypeScript\",\n    \"React.js\",\n    \"Node.js\",\n    \"MongoDB\",\n    \"Express.js\",\n    \"REST APIs\",\n    \"Git\"\n  ],\n  \"preferredSkills\": [\n    \"Next.js\",\n    \"GraphQL\",\n    \"Docker\",\n    \"AWS\",\n    \"Redis\",\n    \"PostgreSQL\"\n  ],\n  \"experience\": \"3-5 years of professional experience in full stack development\",\n  \"location\": \"San Francisco, CA (Remote Available)\",\n  \"jobType\": \"full-time\",\n  \"salaryRange\": {\n    \"min\": 120000,\n    \"max\": 160000\n  }\n}"
+              "raw": "{\n  \"title\": \"Software Developer Application\",\n  \"description\": \"Complete application form for software developer positions\",\n  \"questions\": [\n    {\n      \"step\": 1,\n      \"field\": \"firstName\",\n      \"question\": \"What is your first name?\",\n      \"type\": \"text\",\n      \"required\": true\n    },\n    {\n      \"step\": 2,\n      \"field\": \"lastName\",\n      \"question\": \"What is your last name?\",\n      \"type\": \"text\",\n      \"required\": true\n    },\n    {\n      \"step\": 3,\n      \"field\": \"email\",\n      \"question\": \"What is your email address?\",\n      \"type\": \"email\",\n      \"required\": true\n    },\n    {\n      \"step\": 4,\n      \"field\": \"phone\",\n      \"question\": \"What is your phone number?\",\n      \"type\": \"text\",\n      \"required\": true\n    },\n    {\n      \"step\": 5,\n      \"field\": \"experience\",\n      \"question\": \"How many years of programming experience do you have?\",\n      \"type\": \"text\",\n      \"required\": true\n    },\n    {\n      \"step\": 6,\n      \"field\": \"skills\",\n      \"question\": \"What programming languages and technologies are you proficient in?\",\n      \"type\": \"text\",\n      \"required\": true\n    }\n  ],\n  \"isActive\": true,\n  \"isDefault\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/questionsets",
+              "host": ["{{baseUrl}}"],
+              "path": ["questionsets"]
+            },
+            "description": "Create a new question set for the Telegram bot"
+          }
+        },
+        {
+          "name": "Get All Question Sets",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Question sets retrieved successfully', () => {",
+                  "    pm.response.to.have.status(200);",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.success).to.be.true;",
+                  "    pm.expect(response.data.questionSets).to.be.an('array');",
+                  "    pm.expect(response.data.pagination).to.exist;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/questionsets?page=1&limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["questionsets"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "Get all question sets with pagination"
+          }
+        },
+        {
+          "name": "Get Active Question Sets",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/questionsets/active",
+              "host": ["{{baseUrl}}"],
+              "path": ["questionsets", "active"]
+            },
+            "description": "Get all active question sets"
+          }
+        },
+        {
+          "name": "Get Question Set by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/questionsets/{{questionSetId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["questionsets", "{{questionSetId}}"]
+            },
+            "description": "Get a specific question set by ID"
+          }
+        },
+        {
+          "name": "Update Question Set",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Updated Software Developer Application\",\n  \"description\": \"Updated complete application form for software developer positions\",\n  \"isActive\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/questionsets/{{questionSetId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["questionsets", "{{questionSetId}}"]
+            },
+            "description": "Update an existing question set"
+          }
+        },
+        {
+          "name": "Delete Question Set",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/questionsets/{{questionSetId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["questionsets", "{{questionSetId}}"]
+            },
+            "description": "Delete a question set"
+          }
+        }
+      ],
+      "description": "Question set management endpoints for Telegram bot applications"
+    },
+    {
+      "name": "👥 Candidate Management",
+      "item": [
+        {
+          "name": "Get All Completed Candidates",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/candidates?questionSetId={{questionSetId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["candidates"],
+              "query": [
+                {
+                  "key": "questionSetId",
+                  "value": "{{questionSetId}}"
+                }
+              ]
+            },
+            "description": "Get all completed candidate applications"
+          }
+        },
+        {
+          "name": "Get All Candidates (Including Incomplete)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/candidates/all?questionSetId={{questionSetId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["candidates", "all"],
+              "query": [
+                {
+                  "key": "questionSetId",
+                  "value": "{{questionSetId}}"
+                }
+              ]
+            },
+            "description": "Get all candidates including incomplete applications"
+          }
+        },
+        {
+          "name": "Get Candidate Statistics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/candidates/stats?questionSetId={{questionSetId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["candidates", "stats"],
+              "query": [
+                {
+                  "key": "questionSetId",
+                  "value": "{{questionSetId}}"
+                }
+              ]
+            },
+            "description": "Get candidate application statistics"
+          }
+        },
+        {
+          "name": "Export Candidates",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/candidates/export?questionSetId={{questionSetId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["candidates", "export"],
+              "query": [
+                {
+                  "key": "questionSetId",
+                  "value": "{{questionSetId}}"
+                }
+              ]
+            },
+            "description": "Export candidate data in a structured format"
+          }
+        },
+        {
+          "name": "Get Candidate by Telegram ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/candidates/{{telegramId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["candidates", "{{telegramId}}"]
+            },
+            "description": "Get a specific candidate by their Telegram ID"
+          }
+        },
+        {
+          "name": "Delete Candidate",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/candidates/{{telegramId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["candidates", "{{telegramId}}"]
+            },
+            "description": "Delete a candidate by their Telegram ID"
+          }
+        },
+        {
+          "name": "Rank Candidates by Job",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/candidates/rank?jobId={{jobId}}&limit=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "candidates",
+                "rank"
+              ],
+              "query": [
+                {
+                  "key": "jobId",
+                  "value": "{{jobId}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "Get a ranked list of top candidates for a specific job based on their resume scores"
+          }
+        }
+      ],
+      "description": "Candidate management endpoints for Telegram bot applications"
+    },
+    {
+      "name": "🤖 Bot Management",
+      "item": [
+        {
+          "name": "Get Bot Statistics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bot/stats?questionSetId={{questionSetId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["bot", "stats"],
+              "query": [
+                {
+                  "key": "questionSetId",
+                  "value": "{{questionSetId}}"
+                }
+              ]
+            },
+            "description": "Get Telegram bot statistics"
+          }
+        },
+        {
+          "name": "Get Bot Info",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bot/info",
+              "host": ["{{baseUrl}}"],
+              "path": ["bot", "info"]
+            },
+            "description": "Get Telegram bot information and status"
+          }
+        },
+        {
+          "name": "Get Question Sets for Bot",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bot/questionsets",
+              "host": ["{{baseUrl}}"],
+              "path": ["bot", "questionsets"]
+            },
+            "description": "Get active question sets available for the bot"
+          }
+        },
+        {
+          "name": "Set Active Question Set",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"questionSetId\": \"{{questionSetId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/bot/questionsets/set-active",
+              "host": ["{{baseUrl}}"],
+              "path": ["bot", "questionsets", "set-active"]
+            },
+            "description": "Set the active question set for the bot"
+          }
+        },
+        {
+          "name": "Broadcast Message",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"📢 Important announcement: We have new job openings available! Please check our latest positions.\",\n  \"targetType\": \"all\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/bot/broadcast",
+              "host": ["{{baseUrl}}"],
+              "path": ["bot", "broadcast"]
+            },
+            "description": "Broadcast a message to candidates via Telegram bot"
+          }
+        }
+      ],
+      "description": "Telegram bot management and communication endpoints"
+    },
+    {
+      "name": "💼 Job Management",
+      "item": [
+        {
+          "name": "Create Job Description",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Senior Full Stack Developer\",\n  \"company\": \"TechCorp Inc.\",\n  \"description\": \"We are looking for an experienced Full Stack Developer to join our team.\",\n  \"requiredSkills\": [\"JavaScript\", \"TypeScript\", \"React.js\", \"Node.js\", \"MongoDB\"],\n  \"experience\": \"3-5 years\",\n  \"location\": \"Remote\",\n  \"jobType\": \"full-time\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/jobs",
@@ -236,23 +697,6 @@
         },
         {
           "name": "Get All Jobs",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Jobs retrieved successfully', () => {",
-                  "    pm.response.to.have.status(200);",
-                  "    const response = pm.response.json();",
-                  "    pm.expect(response.success).to.be.true;",
-                  "    pm.expect(response.data.jobs).to.be.an('array');",
-                  "    pm.expect(response.data.pagination).to.exist;",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
           "request": {
             "method": "GET",
             "header": [
@@ -278,85 +722,6 @@
             },
             "description": "Get all job descriptions with pagination"
           }
-        },
-        {
-          "name": "Get Job by ID",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Job retrieved successfully', () => {",
-                  "    pm.response.to.have.status(200);",
-                  "    const response = pm.response.json();",
-                  "    pm.expect(response.success).to.be.true;",
-                  "    pm.expect(response.data._id).to.exist;",
-                  "    pm.expect(response.data.title).to.exist;",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{authToken}}"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/jobs/{{jobId}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["jobs", "{{jobId}}"]
-            },
-            "description": "Get a specific job description by ID"
-          }
-        },
-        {
-          "name": "Update Job Description",
-          "request": {
-            "method": "PUT",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{authToken}}"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"title\": \"Senior Full Stack Developer (Updated)\",\n  \"salaryRange\": {\n    \"min\": 130000,\n    \"max\": 170000\n  }\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/jobs/{{jobId}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["jobs", "{{jobId}}"]
-            },
-            "description": "Update an existing job description"
-          }
-        },
-        {
-          "name": "Delete Job Description",
-          "request": {
-            "method": "DELETE",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{authToken}}"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/jobs/{{jobId}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["jobs", "{{jobId}}"]
-            },
-            "description": "Delete a job description"
-          }
         }
       ],
       "description": "Job description management endpoints"
@@ -366,28 +731,6 @@
       "item": [
         {
           "name": "Scan Resume",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "if (pm.response.code === 200) {",
-                  "    const response = pm.response.json();",
-                  "    if (response.success && response.data) {",
-                  "        pm.collectionVariables.set('resumeScoreId', response.data._id);",
-                  "        pm.test('Resume scanned successfully', () => {",
-                  "            pm.expect(response.success).to.be.true;",
-                  "            pm.expect(response.data.scores.overall).to.be.a('number');",
-                  "            pm.expect(response.data.analysis.matchedSkills).to.be.an('array');",
-                  "            pm.expect(response.data.candidateName).to.exist;",
-                  "        });",
-                  "    }",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
           "request": {
             "method": "POST",
             "header": [
@@ -409,16 +752,6 @@
                   "key": "jobId",
                   "value": "{{jobId}}",
                   "type": "text"
-                },
-                {
-                  "key": "additionalRequirements",
-                  "value": "Must have experience with cloud platforms and microservices architecture",
-                  "type": "text"
-                },
-                {
-                  "key": "weightage",
-                  "value": "{\"skills\": 35, \"experience\": 30, \"education\": 15, \"keywords\": 20}",
-                  "type": "text"
                 }
               ]
             },
@@ -432,23 +765,6 @@
         },
         {
           "name": "Get Resume Scores",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Resume scores retrieved successfully', () => {",
-                  "    pm.response.to.have.status(200);",
-                  "    const response = pm.response.json();",
-                  "    pm.expect(response.success).to.be.true;",
-                  "    pm.expect(response.data.scores).to.be.an('array');",
-                  "    pm.expect(response.data.pagination).to.exist;",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
           "request": {
             "method": "GET",
             "header": [
@@ -458,7 +774,7 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/resume/scores?page=1&limit=10&minScore=50",
+              "raw": "{{baseUrl}}/resume/scores?page=1&limit=10",
               "host": ["{{baseUrl}}"],
               "path": ["resume", "scores"],
               "query": [
@@ -469,55 +785,10 @@
                 {
                   "key": "limit",
                   "value": "10"
-                },
-                {
-                  "key": "jobId",
-                  "value": "{{jobId}}",
-                  "disabled": true
-                },
-                {
-                  "key": "minScore",
-                  "value": "50"
                 }
               ]
             },
             "description": "Get all resume scores with optional filters"
-          }
-        },
-        {
-          "name": "Get Resume Score by ID",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Resume score details retrieved successfully', () => {",
-                  "    pm.response.to.have.status(200);",
-                  "    const response = pm.response.json();",
-                  "    pm.expect(response.success).to.be.true;",
-                  "    pm.expect(response.data._id).to.exist;",
-                  "    pm.expect(response.data.scores).to.exist;",
-                  "    pm.expect(response.data.analysis).to.exist;",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{authToken}}"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/resume/scores/{{resumeScoreId}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["resume", "scores", "{{resumeScoreId}}"]
-            },
-            "description": "Get detailed analysis of a specific resume score"
           }
         }
       ],
@@ -528,23 +799,6 @@
       "item": [
         {
           "name": "Server Health Check",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Server is healthy', () => {",
-                  "    pm.response.to.have.status(200);",
-                  "    const response = pm.response.json();",
-                  "    pm.expect(response.success).to.be.true;",
-                  "    pm.expect(response.data.timestamp).to.exist;",
-                  "    pm.expect(response.data.uptime).to.be.a('number');",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
           "request": {
             "method": "GET",
             "header": [],

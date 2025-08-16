@@ -97,3 +97,122 @@ export const resumeSchemas = {
     }).optional()
   })
 };
+// src/utils/validation.helper.ts
+import { IQuestion } from "../models/QuestionSet.model";
+
+export class ValidationHelper {
+  static validateResponse(question: IQuestion, response: string): { isValid: boolean; message?: string } {
+    if (!response || typeof response !== 'string') {
+      return { isValid: false, message: 'Response is required' };
+    }
+
+    const trimmedResponse = response.trim();
+
+    // Check required field
+    if (question.isRequired && !trimmedResponse) {
+      return { isValid: false, message: 'This field is required' };
+    }
+
+    // Check length constraints
+    if (question.validation.minLength && trimmedResponse.length < question.validation.minLength) {
+      return { 
+        isValid: false, 
+        message: `Minimum length is ${question.validation.minLength} characters` 
+      };
+    }
+
+    if (question.validation.maxLength && trimmedResponse.length > question.validation.maxLength) {
+      return { 
+        isValid: false, 
+        message: `Maximum length is ${question.validation.maxLength} characters` 
+      };
+    }
+
+    // Type-specific validations
+    switch (question.validation.type) {
+      case 'email':
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(trimmedResponse)) {
+          return { isValid: false, message: 'Please provide a valid email address' };
+        }
+        break;
+
+      case 'phone':
+        // Allow various phone formats
+        const phoneRegex = /^[\+]?[1-9][\d]{0,15}$|^[\+]?[\d\s\-\(\)]{8,}$/;
+        if (!phoneRegex.test(trimmedResponse.replace(/\s/g, ''))) {
+          return { isValid: false, message: 'Please provide a valid phone number' };
+        }
+        break;
+
+      case 'number':
+        if (isNaN(Number(trimmedResponse))) {
+          return { isValid: false, message: 'Please provide a valid number' };
+        }
+        break;
+
+      case 'url':
+        try {
+          new URL(trimmedResponse);
+        } catch {
+          // Allow "none" or "n/a" for optional URL fields
+          if (!['none', 'n/a', 'not applicable'].includes(trimmedResponse.toLowerCase())) {
+            return { isValid: false, message: 'Please provide a valid URL or type "none"' };
+          }
+        }
+        break;
+
+      case 'custom':
+        if (question.validation.pattern) {
+          const customRegex = new RegExp(question.validation.pattern);
+          if (!customRegex.test(trimmedResponse)) {
+            return { 
+              isValid: false, 
+              message: 'Response does not match the required format' 
+            };
+          }
+        }
+        break;
+
+      case 'text':
+      default:
+        // No additional validation for text type
+        break;
+    }
+
+    return { isValid: true };
+  }
+
+  static getValidationMessage(question: IQuestion): string {
+    const messages: string[] = [];
+
+    if (question.isRequired) {
+      messages.push("This field is required");
+    }
+
+    switch (question.validation.type) {
+      case 'email':
+        messages.push("Please provide a valid email address");
+        break;
+      case 'phone':
+        messages.push("Please provide a valid phone number");
+        break;
+      case 'number':
+        messages.push("Please provide a valid number");
+        break;
+      case 'url':
+        messages.push('Please provide a valid URL or type "none"');
+        break;
+    }
+
+    if (question.validation.minLength) {
+      messages.push(`Minimum ${question.validation.minLength} characters`);
+    }
+
+    if (question.validation.maxLength) {
+      messages.push(`Maximum ${question.validation.maxLength} characters`);
+    }
+
+    return messages.join(". ");
+  }
+}
