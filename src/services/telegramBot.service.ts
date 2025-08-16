@@ -51,7 +51,13 @@ export class TelegramHiringBotService {
       const telegramId = msg.from?.id.toString() || "";
       
       const applications = await Candidate.find({ telegramId })
-        .populate('questionSetId')
+        .populate({
+          path: 'questionSetId',
+          populate: {
+            path: 'jobId',
+            model: 'JobDescription'
+          }
+        })
         .sort({ createdAt: -1 });
       
       if (!applications || applications.length === 0) {
@@ -63,8 +69,8 @@ export class TelegramHiringBotService {
       
       for (let i = 0; i < applications.length; i++) {
         const app = applications[i];
-        const questionSet = await QuestionSetService.getById(app.questionSetId.toString());
-        const job = questionSet ? await JobDescription.findById(questionSet.jobId) : null;
+        const questionSet = app.questionSetId as any;
+        const job = questionSet?.jobId;
         
         const status = app.isCompleted ? "✅ Completed" : `⏳ In Progress (${app.currentStep}/${questionSet?.questions.length || 0})`;
         const jobTitle = job ? `${job.title} at ${job.company}` : questionSet?.title || "Unknown Job";
@@ -74,11 +80,6 @@ export class TelegramHiringBotService {
         message += `   Status: ${status}\n`;
         message += `   Applied: ${appliedDate}\n`;
         
-        if (app.responses['resumeFileName']) {
-          message += `   Resume: ✅ ${app.responses['resumeFileName']}\n`;
-        } else {
-          message += `   Resume: ❌ Not uploaded\n`;
-        }
         message += `\n`;
       }
       
