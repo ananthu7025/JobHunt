@@ -12,6 +12,8 @@ A Node.js/TypeScript backend API for scanning and analyzing resumes against job 
 - **Scoring System**: Comprehensive scoring based on skills, experience, education, and keywords
 - **Data Persistence**: MongoDB integration with Mongoose ODM
 - **Telegram Bot Integration**: Manage candidates and question sets through a Telegram bot.
+- **Dynamic Cover Letter Generation**: Automatically generates a personalized cover letter for each candidate using Gemini AI.
+- **Automated Emailing**: Sends the candidate's resume and cover letter to HR from the candidate's perspective.
 
 ## User Journey (HR Perspective)
 
@@ -97,6 +99,7 @@ MONGODB_URI=mongodb://localhost:27017/resume_scanner
 JWT_SECRET=your_jwt_secret_key_here
 GEMINI_API_KEY=your_gemini_api_key_here
 CORS_ORIGIN=http://localhost:3000
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
 ```
 
 ## Installation & Setup
