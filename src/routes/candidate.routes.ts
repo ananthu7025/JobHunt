@@ -16,6 +16,12 @@ router.get("/export", CandidateController.exportCandidates);
 router.get("/:telegramId", CandidateController.getByTelegramId);
 router.delete("/:telegramId", CandidateController.delete);
 
+// Resume-specific operations
+router.get("/with-resumes", CandidateController.getCandidatesWithResumes);
+router.get("/:telegramId/resume", CandidateController.getResumeInfo);
+router.get("/:telegramId/resume/download", CandidateController.downloadResume);
+router.delete("/:telegramId/resume", CandidateController.deleteResume);
+
 // Question set specific operations
 router.get("/questionset/:questionSetId/responses/:field", CandidateController.getResponsesByField);
 

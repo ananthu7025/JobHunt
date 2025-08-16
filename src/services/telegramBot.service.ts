@@ -6,14 +6,25 @@ import { CandidateDocument } from "../models/candidate.model";
 import { IQuestion, IQuestionSet } from "../models/QuestionSet.model";
 import { ValidationHelper } from "../utils/validation";
 import mongoose from "mongoose";
+import fs from 'fs';
+import path from 'path';
+import { v4 as uuidv4 } from 'uuid';
 
 export class TelegramHiringBotService {
   private bot: TelegramBot;
   private readonly token: string = process.env.TELEGRAM_BOT_TOKEN || "8309639217:AAEQwAu_3zsjwzOK2GIQUNV3_GONfc8-GsI";
+  private readonly uploadsDir: string = 'uploads/resumes/';
 
   constructor() {
     this.bot = new TelegramBot(this.token, { polling: true });
+    this.ensureUploadDir();
     this.setupHandlers();
+  }
+
+  private ensureUploadDir() {
+    if (!fs.existsSync(this.uploadsDir)) {
+      fs.mkdirSync(this.uploadsDir, { recursive: true });
+    }
   }
 
   private setupHandlers() {
@@ -21,15 +32,256 @@ export class TelegramHiringBotService {
     this.bot.onText(/\/restart/, (msg: any) => this.handleRestart(msg));
     this.bot.onText(/\/status/, (msg: any) => this.handleStatus(msg));
     this.bot.onText(/\/questsets/, (msg: any) => this.handleListQuestionSets(msg));
+    this.bot.onText(/\/upload/, (msg: any) => this.handleUploadCommand(msg));
+    
+    // Handle document uploads
+    this.bot.on("document", (msg: any) => this.handleDocument(msg));
+    
     this.bot.on("message", (msg: any) => this.handleMessage(msg));
   }
 
+  private async handleUploadCommand(msg: TelegramBot.Message) {
+    try {
+      const chatId = msg.chat.id;
+      const telegramId = msg.from?.id.toString() || "";
+      
+      const candidate = await CandidateService.getByTelegramId(telegramId);
+      
+      if (!candidate) {
+        this.bot.sendMessage(chatId, "❌ Please start with /start first to begin your application.");
+        return;
+      }
+
+      const uploadMessage = `📄 *Resume Upload*\n\n` +
+        `Please send your resume as a document. Accepted formats:\n` +
+        `• PDF (.pdf)\n` +
+        `• Microsoft Word (.doc, .docx)\n\n` +
+        `📁 Maximum file size: 20MB\n\n` +
+        `💡 Just drag and drop your file or use the attachment button!`;
+
+      await this.bot.sendMessage(chatId, uploadMessage, { parse_mode: "Markdown" });
+    } catch (error) {
+      console.error('Error in handleUploadCommand:', error);
+      this.bot.sendMessage(msg.chat.id, '❌ An error occurred. Please try again.');
+    }
+  }
+
+  private async handleDocument(msg: TelegramBot.Message) {
+    try {
+      const chatId = msg.chat.id;
+      const telegramId = msg.from?.id.toString() || "";
+      const document = msg.document;
+
+      if (!document) return;
+
+      // Check if user has started the application
+      const candidate = await CandidateService.getByTelegramId(telegramId);
+      if (!candidate) {
+        this.bot.sendMessage(chatId, "❌ Please start with /start first to begin your application.");
+        return;
+      }
+
+      // Validate file type
+      const allowedMimeTypes = [
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      ];
+
+      const allowedExtensions = ['.pdf', '.doc', '.docx'];
+      const fileExtension = path.extname(document.file_name || '').toLowerCase();
+
+      if (!allowedMimeTypes.includes(document.mime_type || '') && 
+          !allowedExtensions.includes(fileExtension)) {
+        this.bot.sendMessage(chatId, 
+          "❌ Invalid file format. Please upload PDF, DOC, or DOCX files only.");
+        return;
+      }
+
+      // Check file size (Telegram limit is 20MB for bots)
+      if (document.file_size && document.file_size > 20 * 1024 * 1024) {
+        this.bot.sendMessage(chatId, 
+          "❌ File too large. Please upload a file smaller than 20MB.");
+        return;
+      }
+
+      // Show processing message
+      const processingMsg = await this.bot.sendMessage(chatId, "⏳ Processing your resume...");
+
+      try {
+        // Download the file
+        const fileLink = await this.bot.getFileLink(document.file_id);
+        const response = await fetch(fileLink);
+        
+        if (!response.ok) {
+          throw new Error('Failed to download file');
+        }
+
+        // Generate unique filename
+        const uniqueFilename = `${uuidv4()}-${Date.now()}${fileExtension}`;
+        const filePath = path.join(this.uploadsDir, uniqueFilename);
+
+        // Save file
+        const buffer = await response.arrayBuffer();
+        fs.writeFileSync(filePath, Buffer.from(buffer));
+
+        // Update candidate record with resume info
+        candidate.responses['resumeFileName'] = document.file_name || uniqueFilename;
+        candidate.responses['resumeFilePath'] = filePath;
+        candidate.responses['resumeUploadedAt'] = new Date().toISOString();
+        candidate.updatedAt = new Date();
+        
+        await candidate.save();
+
+        // Delete processing message
+        await this.bot.deleteMessage(chatId, processingMsg.message_id);
+
+        // Send success message
+        const successMessage = `✅ *Resume Uploaded Successfully!*\n\n` +
+          `📄 File: ${document.file_name}\n` +
+          `📏 Size: ${this.formatFileSize(document.file_size || 0)}\n` +
+          `📅 Uploaded: ${new Date().toLocaleDateString()}\n\n` +
+          `Your resume has been saved and will be reviewed along with your application.\n\n` +
+          `Use /status to see your complete application status.`;
+
+        await this.bot.sendMessage(chatId, successMessage, { parse_mode: "Markdown" });
+
+        // If there are still questions to answer, remind the user
+        const questionSet = await QuestionSetService.getById(candidate.questionSetId.toString());
+        if (questionSet && !candidate.isCompleted && candidate.currentStep < questionSet.questions.length) {
+          setTimeout(() => {
+            this.bot.sendMessage(chatId, 
+              `📝 Don't forget to continue with your application questions!\n\n` +
+              `Progress: ${candidate.currentStep}/${questionSet.questions.length} completed`);
+            
+            // Ask next question
+            this.askNextQuestion(chatId, candidate, questionSet);
+          }, 2000);
+        }
+
+      } catch (downloadError) {
+        console.error('Error downloading file:', downloadError);
+        await this.bot.deleteMessage(chatId, processingMsg.message_id);
+        this.bot.sendMessage(chatId, 
+          "❌ Failed to download your resume. Please try uploading again.");
+      }
+
+    } catch (error) {
+      console.error('Error in handleDocument:', error);
+      this.bot.sendMessage(msg.chat.id, 
+        '❌ An error occurred while processing your resume. Please try again.');
+    }
+  }
+
+  private formatFileSize(bytes: number): string {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  }
+
+  // Enhanced status method to show resume info
+  private async handleStatus(msg: TelegramBot.Message) {
+    try {
+      const chatId = msg.chat.id;
+      const telegramId = msg.from?.id.toString() || "";
+      const candidate = await CandidateService.getByTelegramId(telegramId);
+
+      if (!candidate) {
+        this.bot.sendMessage(chatId, "❌ No application found. Use /start to begin or /questsets to see available question sets.");
+        return;
+      }
+
+      const questionSet = await QuestionSetService.getById(candidate.questionSetId.toString());
+
+      if (!questionSet) {
+        this.bot.sendMessage(chatId, "❌ Question set not found. Please restart your application.");
+        return;
+      }
+
+      if (candidate.isCompleted) {
+        let message = "📊 *Application Status*\n✅ Completed\n\n";
+        message += `📋 *Question Set*: ${questionSet.title}\n\n`;
+        
+        // Show resume info
+        if (candidate.responses['resumeFileName']) {
+          message += `📄 *Resume*: ${candidate.responses['resumeFileName']}\n`;
+          if (candidate.responses['resumeUploadedAt']) {
+            const uploadDate = new Date(candidate.responses['resumeUploadedAt']);
+            message += `📅 *Uploaded*: ${uploadDate.toLocaleDateString()}\n\n`;
+          }
+        } else {
+          message += `📄 *Resume*: Not uploaded\n`;
+          message += `💡 Use /upload to add your resume\n\n`;
+        }
+        
+        // Show responses (existing logic)
+        const responses = Object.entries(candidate.responses);
+        if (responses.length > 0) {
+          message += "*Your Responses:*\n";
+          let responseCount = 0;
+          for (const [field, value] of responses) {
+            // Skip resume-related fields in the summary
+            if (field.startsWith('resume')) continue;
+            
+            if (value && typeof value === 'string') {
+              const question = questionSet.questions.find(q => q.field === field);
+              const label = question ? question.field.charAt(0).toUpperCase() + question.field.slice(1) : field;
+              const truncatedValue = value.length > 50 ? value.substring(0, 47) + '...' : value;
+              message += `• *${label}*: ${truncatedValue}\n`;
+              responseCount++;
+              
+              if (responseCount >= 8) {
+                message += "• ... (and more)\n";
+                break;
+              }
+            }
+          }
+        }
+
+        if (candidate.createdAt) {
+          message += `\n📅 *Submitted*: ${candidate.createdAt.toLocaleDateString()}\n`;
+        }
+
+        await this.bot.sendMessage(chatId, message, { parse_mode: "Markdown" });
+      } else {
+        const totalQuestions = questionSet.questions.length;
+        const progress = `${candidate.currentStep}/${totalQuestions}`;
+        const percentage = Math.round((candidate.currentStep / totalQuestions) * 100);
+        
+        let message = `⏳ *Application Status*\n`;
+        message += `📋 *Question Set*: ${questionSet.title}\n`;
+        message += `📊 Progress: ${progress} (${percentage}%)\n`;
+        
+        // Show resume status
+        if (candidate.responses['resumeFileName']) {
+          message += `📄 *Resume*: ✅ ${candidate.responses['resumeFileName']}\n`;
+        } else {
+          message += `📄 *Resume*: ❌ Not uploaded (use /upload)\n`;
+        }
+        
+        if (candidate.createdAt) {
+          message += `🕐 Started: ${candidate.createdAt.toLocaleDateString()}\n`;
+        }
+        
+        message += `\n📝 Continue your application by answering the next question.`;
+        message += `\n💡 You can upload your resume anytime using /upload`;
+
+        await this.bot.sendMessage(chatId, message, { parse_mode: "Markdown" });
+      }
+    } catch (error) {
+      console.error('Error in handleStatus:', error);
+      this.bot.sendMessage(msg.chat.id, '❌ An error occurred while fetching your status. Please try again.');
+    }
+  }
+
+  // Enhanced start method with resume upload info
   private async handleStart(msg: TelegramBot.Message, match: any) {
     try {
       const chatId = msg.chat.id;
       const telegramId = msg.from?.id.toString() || "";
       
-      // Extract question set ID from command (e.g., /start 60f7b3b3b3b3b3b3b3b3b3b3)
       const questionSetId = match && match[1] ? match[1] : null;
 
       let candidate = await CandidateService.getByTelegramId(telegramId);
@@ -39,11 +291,9 @@ export class TelegramHiringBotService {
         return;
       }
 
-      // Get the question set to use
       let questionSet: IQuestionSet | null = null;
 
       if (questionSetId) {
-        // Validate ObjectId format before querying
         if (mongoose.Types.ObjectId.isValid(questionSetId)) {
           questionSet = await QuestionSetService.getById(questionSetId);
           if (!questionSet) {
@@ -63,23 +313,27 @@ export class TelegramHiringBotService {
         return;
       }
 
-      // Create or update candidate with the question set
       candidate = await CandidateService.createOrGet(telegramId, {
         telegramId,
         username: msg.from?.username,
         firstName: msg.from?.first_name,
         lastName: msg.from?.last_name,
         currentStep: 0,
-        questionSetId: questionSet._id, // This is now properly handled in createOrGet
+        questionSetId: questionSet._id,
       });
 
-      // Welcome message with question set info
+      // Enhanced welcome message
       let welcomeMessage = `🎯 *${questionSet.title}*\n\n`;
       if (questionSet.description) {
         welcomeMessage += `${questionSet.description}\n\n`;
       }
       welcomeMessage += `📝 This application has ${questionSet.questions.length} questions.\n`;
-      welcomeMessage += `⏱️ It should take about ${Math.ceil(questionSet.questions.length / 2)} minutes to complete.\n\n`;
+      welcomeMessage += `⏱️ It should take about ${Math.ceil(questionSet.questions.length / 2)} minutes to complete.\n`;
+      welcomeMessage += `📄 You can also upload your resume using /upload\n\n`;
+      welcomeMessage += `💡 *Available Commands:*\n`;
+      welcomeMessage += `• /upload - Upload your resume\n`;
+      welcomeMessage += `• /status - Check application status\n`;
+      welcomeMessage += `• /restart - Start over\n\n`;
 
       await this.bot.sendMessage(chatId, welcomeMessage, { parse_mode: "Markdown" });
       
@@ -90,6 +344,7 @@ export class TelegramHiringBotService {
     }
   }
 
+  // Keep all other existing methods unchanged...
   private async handleListQuestionSets(msg: TelegramBot.Message) {
     try {
       const chatId = msg.chat.id;
@@ -125,85 +380,25 @@ export class TelegramHiringBotService {
       const chatId = msg.chat.id;
       const telegramId = msg.from?.id.toString() || "";
       
+      // Get candidate to clean up resume file if exists
+      const candidate = await CandidateService.getByTelegramId(telegramId);
+      if (candidate && candidate.responses['resumeFilePath']) {
+        try {
+          const filePath = candidate.responses['resumeFilePath'];
+          if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+          }
+        } catch (fileError) {
+          console.error('Error deleting resume file:', fileError);
+        }
+      }
+      
       await CandidateService.delete(telegramId);
       
       this.bot.sendMessage(chatId, "🔄 Process restarted! Use /start to begin again or /questsets to see available question sets.");
     } catch (error) {
       console.error('Error in handleRestart:', error);
       this.bot.sendMessage(msg.chat.id, '❌ An error occurred while restarting. Please try again.');
-    }
-  }
-
-  private async handleStatus(msg: TelegramBot.Message) {
-    try {
-      const chatId = msg.chat.id;
-      const telegramId = msg.from?.id.toString() || "";
-      const candidate = await CandidateService.getByTelegramId(telegramId);
-
-      if (!candidate) {
-        this.bot.sendMessage(chatId, "❌ No application found. Use /start to begin or /questsets to see available question sets.");
-        return;
-      }
-
-      // FIXED: Now candidate.questionSetId is properly an ObjectId, not a populated document
-      const questionSet = await QuestionSetService.getById(candidate.questionSetId.toString());
-
-      if (!questionSet) {
-        this.bot.sendMessage(chatId, "❌ Question set not found. Please restart your application.");
-        return;
-      }
-
-      if (candidate.isCompleted) {
-        let message = "📊 *Application Status*\n✅ Completed\n\n";
-        message += `📋 *Question Set*: ${questionSet.title}\n\n`;
-        
-        // Show responses
-        const responses = Object.entries(candidate.responses);
-        if (responses.length > 0) {
-          message += "*Your Responses:*\n";
-          let responseCount = 0;
-          for (const [field, value] of responses) {
-            if (value && typeof value === 'string') {
-              const question = questionSet.questions.find(q => q.field === field);
-              const label = question ? question.field.charAt(0).toUpperCase() + question.field.slice(1) : field;
-              const truncatedValue = value.length > 50 ? value.substring(0, 47) + '...' : value;
-              message += `• *${label}*: ${truncatedValue}\n`;
-              responseCount++;
-              
-              // Limit to prevent message overflow
-              if (responseCount >= 8) {
-                message += "• ... (and more)\n";
-                break;
-              }
-            }
-          }
-        }
-
-        if (candidate.createdAt) {
-          message += `\n📅 *Submitted*: ${candidate.createdAt.toLocaleDateString()}\n`;
-        }
-
-        await this.bot.sendMessage(chatId, message, { parse_mode: "Markdown" });
-      } else {
-        const totalQuestions = questionSet.questions.length;
-        const progress = `${candidate.currentStep}/${totalQuestions}`;
-        const percentage = Math.round((candidate.currentStep / totalQuestions) * 100);
-        
-        let message = `⏳ *Application Status*\n`;
-        message += `📋 *Question Set*: ${questionSet.title}\n`;
-        message += `📊 Progress: ${progress} (${percentage}%)\n`;
-        
-        if (candidate.createdAt) {
-          message += `🕐 Started: ${candidate.createdAt.toLocaleDateString()}\n`;
-        }
-        
-        message += `\n📝 Continue your application by answering the next question.`;
-
-        await this.bot.sendMessage(chatId, message, { parse_mode: "Markdown" });
-      }
-    } catch (error) {
-      console.error('Error in handleStatus:', error);
-      this.bot.sendMessage(msg.chat.id, '❌ An error occurred while fetching your status. Please try again.');
     }
   }
 
@@ -225,7 +420,6 @@ export class TelegramHiringBotService {
         return;
       }
 
-      // FIXED: Now candidate.questionSetId is properly an ObjectId
       const questionSet = await QuestionSetService.getById(candidate.questionSetId.toString());
       
       if (!questionSet) {
@@ -250,7 +444,6 @@ export class TelegramHiringBotService {
       const currentQuestion = questionSet.questions.find(q => q.step === candidate.currentStep + 1);
       if (!currentQuestion) return;
 
-      // Validate response using the dynamic validation
       const validation = ValidationHelper.validateResponse(currentQuestion, response);
       
       if (!validation.isValid) {
@@ -259,7 +452,6 @@ export class TelegramHiringBotService {
         return;
       }
 
-      // Store the response
       candidate.responses[currentQuestion.field] = response.trim();
       candidate.currentStep++;
       candidate.updatedAt = new Date();
@@ -268,18 +460,22 @@ export class TelegramHiringBotService {
         candidate.isCompleted = true;
         await candidate.save();
         
-        // Send completion message
         let completionMessage = `🎉 *Application Submitted Successfully!*\n\n`;
         completionMessage += `📋 Question Set: ${questionSet.title}\n\n`;
         completionMessage += "Thank you for completing your application. ";
         completionMessage += "Our team will review it and get back to you soon.\n\n";
+        
+        // Remind about resume if not uploaded
+        if (!candidate.responses['resumeFileName']) {
+          completionMessage += "💡 Don't forget to upload your resume using /upload to complete your profile!\n\n";
+        }
+        
         completionMessage += "Use /status to view your application details anytime.";
         
         this.bot.sendMessage(chatId, completionMessage, { parse_mode: "Markdown" });
       } else {
         await candidate.save();
         
-        // Small delay before asking next question for better UX
         setTimeout(() => {
           this.askNextQuestion(chatId, candidate, questionSet);
         }, 500);
@@ -297,7 +493,6 @@ export class TelegramHiringBotService {
         const progress = `[${candidate.currentStep + 1}/${questionSet.questions.length}] `;
         const questionText = progress + nextQuestion.question;
         
-        // Add validation hint if needed
         const validationHint = ValidationHelper.getValidationMessage(nextQuestion);
         const fullMessage = validationHint ? `${questionText}\n\n💡 ${validationHint}` : questionText;
         
@@ -309,7 +504,6 @@ export class TelegramHiringBotService {
     }
   }
 
-  // Method to stop the bot gracefully
   public stopBot() {
     try {
       this.bot.stopPolling();

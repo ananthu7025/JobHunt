@@ -4,10 +4,14 @@ import { GeminiService } from './gemini.service';
 import { PDFService } from './pdf.service';
 import { IScanRequest, IResumeScore } from '../types';
 import fs from 'fs';
+import path from 'path';
 
 export class ResumeService {
   private geminiService = new GeminiService();
 
+  // -----------------------
+  // Instance Methods
+  // -----------------------
   async scanResume(
     filePath: string,
     fileName: string,
@@ -17,12 +21,10 @@ export class ResumeService {
     try {
       // Extract text from resume
       const resumeText = await PDFService.extractTextFromPDF(filePath);
-      
+
       // Get job description
       const jobDescription = await JobDescription.findById(scanRequest.jobId);
-      if (!jobDescription) {
-        throw new Error('Job description not found');
-      }
+      if (!jobDescription) throw new Error('Job description not found');
 
       // Analyze with Gemini
       const analysis = await this.geminiService.analyzeResume(
@@ -32,13 +34,17 @@ export class ResumeService {
         scanRequest.weightage
       );
 
-      // Extract candidate info if not provided by Gemini
-      const candidateInfo = analysis.candidate_info || 
-        await PDFService.extractCandidateInfo(resumeText);
+      // Extract candidate info (fallback to PDF extraction)
+      const pdfCandidateInfo = await PDFService.extractCandidateInfo(resumeText);
+      const candidateInfo = {
+        name: analysis.candidate_info?.name || pdfCandidateInfo.name || 'Unknown Candidate',
+        email: analysis.candidate_info?.email || pdfCandidateInfo.email,
+        phone: analysis.candidate_info?.phone || pdfCandidateInfo.phone
+      };
 
-      // Create resume score record
+      // Create ResumeScore record
       const resumeScore = new ResumeScore({
-        candidateName: candidateInfo.name || 'Unknown Candidate',
+        candidateName: candidateInfo.name,
         candidateEmail: candidateInfo.email,
         candidatePhone: candidateInfo.phone,
         resumeText,
@@ -63,17 +69,13 @@ export class ResumeService {
 
       await resumeScore.save();
 
-      // Clean up uploaded file
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-      }
+      // Cleanup uploaded file
+      await ResumeService.deleteFile(filePath);
 
       return resumeScore;
     } catch (error) {
-      // Clean up uploaded file in case of error
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-      }
+      console.error('Error scanning resume:', error);
+      await ResumeService.deleteFile(filePath);
       throw error;
     }
   }
@@ -86,13 +88,13 @@ export class ResumeService {
     page?: number;
   }) {
     const query: any = {};
-    
+
     if (filters.jobId) query.jobId = filters.jobId;
     if (filters.scannedBy) query.scannedBy = filters.scannedBy;
-    if (filters.minScore) query['scores.overall'] = { $gte: filters.minScore };
+    if (filters.minScore !== undefined) query['scores.overall'] = { $gte: filters.minScore };
 
     const page = filters.page || 1;
-    const limit = filters.limit || 10;
+    const limit = Math.min(filters.limit || 10, 100); // max 100 per page
     const skip = (page - 1) * limit;
 
     const [scores, total] = await Promise.all([
@@ -114,4 +116,113 @@ export class ResumeService {
       }
     };
   }
+
+  // -----------------------
+  // Static File Helpers
+  // -----------------------
+  private static readonly UPLOAD_DIR = 'uploads/resumes/';
+  private static readonly MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
+  private static readonly ALLOWED_EXTENSIONS = ['.pdf', '.doc', '.docx'];
+  private static readonly ALLOWED_MIME_TYPES = [
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  ];
+
+  static async ensureUploadDirectory(): Promise<void> {
+    if (!fs.existsSync(this.UPLOAD_DIR)) {
+      await fs.promises.mkdir(this.UPLOAD_DIR, { recursive: true });
+    }
+  }
+
+  static validateFileType(filename: string, mimeType?: string): boolean {
+    const extension = path.extname(filename).toLowerCase();
+    const isValidExtension = this.ALLOWED_EXTENSIONS.includes(extension);
+    const isValidMimeType = !mimeType || this.ALLOWED_MIME_TYPES.includes(mimeType);
+    return isValidExtension && isValidMimeType;
+  }
+
+  static validateFileSize(size: number): boolean {
+    return size <= this.MAX_FILE_SIZE;
+  }
+
+  static formatFileSize(bytes: number): string {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  }
+
+  static async deleteFile(filePath: string): Promise<boolean> {
+    try {
+      if (fs.existsSync(filePath)) {
+        await fs.promises.unlink(filePath);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Error deleting file:', error);
+      return false;
+    }
+  }
+
+  static async getFileStats(filePath: string): Promise<{
+    exists: boolean;
+    size?: number;
+    modifiedAt?: Date;
+  }> {
+    try {
+      if (!fs.existsSync(filePath)) return { exists: false };
+      const stats = await fs.promises.stat(filePath);
+      return { exists: true, size: stats.size, modifiedAt: stats.mtime };
+    } catch (error) {
+      console.error('Error getting file stats:', error);
+      return { exists: false };
+    }
+  }
+
+  static async cleanupOrphanedFiles(): Promise<{
+    deletedCount: number;
+    errors: string[];
+  }> {
+    const results = { deletedCount: 0, errors: [] as string[] };
+    try {
+      if (!fs.existsSync(this.UPLOAD_DIR)) return results;
+      const files = await fs.promises.readdir(this.UPLOAD_DIR);
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+      for (const file of files) {
+        try {
+          const filePath = path.join(this.UPLOAD_DIR, file);
+          const stats = await fs.promises.stat(filePath);
+          if (stats.mtime < sevenDaysAgo) {
+            await fs.promises.unlink(filePath);
+            results.deletedCount++;
+          }
+        } catch (error) {
+          results.errors.push(`Error processing file ${file}: ${error}`);
+        }
+      }
+    } catch (error) {
+      results.errors.push(`Error reading upload directory: ${error}`);
+    }
+    return results;
+  }
+
+  static getUploadDirectory(): string { return this.UPLOAD_DIR; }
+  static getMaxFileSize(): number { return this.MAX_FILE_SIZE; }
+  static getAllowedExtensions(): string[] { return [...this.ALLOWED_EXTENSIONS]; }
+  static getAllowedMimeTypes(): string[] { return [...this.ALLOWED_MIME_TYPES]; }
 }
+
+// -----------------------
+// Export helper functions
+// -----------------------
+export const resumeHelpers = {
+  formatFileSize: ResumeService.formatFileSize.bind(ResumeService),
+  validateFileType: ResumeService.validateFileType.bind(ResumeService),
+  validateFileSize: ResumeService.validateFileSize.bind(ResumeService),
+  deleteFile: ResumeService.deleteFile.bind(ResumeService),
+  getFileStats: ResumeService.getFileStats.bind(ResumeService)
+};
