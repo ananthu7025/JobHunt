@@ -28,7 +28,8 @@ export const CandidateController = {
   async getAll(req: Request, res: Response) {
     try {
       const { questionSetId } = req.query;
-      const candidates = await CandidateService.getAllWithQuestionSet(questionSetId as string);
+      const filter = questionSetId ? { questionSetId: questionSetId as string } : {};
+      const candidates = await CandidateService.getAll(filter);
       res.json(createResponse(true, "Candidates retrieved successfully", candidates));
     } catch (error) {
       console.error("Get candidates error:", error);
