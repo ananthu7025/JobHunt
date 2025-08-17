@@ -303,31 +303,21 @@ export class TelegramHiringBotService {
         return this.bot.sendMessage(msg.chat.id, 
           "❌ Question set not found. Please restart your application.");
       }
+      
+      const job = await JobDescription.findById(questionSet.jobId);
 
       const message = candidate.isCompleted 
-        ? this.buildCompletedStatusMessage(candidate, questionSet)
-        : this.buildInProgressStatusMessage(candidate, questionSet);
+        ? this.buildCompletedStatusMessage(candidate, questionSet, job)
+        : this.buildInProgressStatusMessage(candidate, questionSet, job);
 
       await this.bot.sendMessage(msg.chat.id, message, { parse_mode: "Markdown" });
     }, msg.chat.id, '❌ Error fetching status.');
   }
 
-  private buildCompletedStatusMessage(candidate: CandidateDocument, questionSet: IQuestionSet): string {
-    const job = questionSet.jobId as any;
+  private buildCompletedStatusMessage(candidate: CandidateDocument, questionSet: IQuestionSet, job: any): string {
     const jobTitle = job ? `${job.title} at ${job.company}` : questionSet.title || "Unknown Job";
     
     let message = `📊 *Application Status*\n✅ Completed\n\n📋 *Job*: ${jobTitle}\n\n`;
-    
-    // Resume info
-    const { resumeFileName, resumeUploadedAt } = candidate.responses;
-    if (resumeFileName) {
-      message += `📄 *Resume*: ${resumeFileName}\n`;
-      if (resumeUploadedAt) {
-        message += `📅 *Uploaded*: ${new Date(resumeUploadedAt).toLocaleDateString()}\n\n`;
-      }
-    } else {
-      message += "📄 *Resume*: Not uploaded\n💡 Use /upload to add your resume\n\n";
-    }
 
     // Responses summary
     const responses = Object.entries(candidate.responses)
@@ -355,8 +345,7 @@ export class TelegramHiringBotService {
     return message;
   }
 
-  private buildInProgressStatusMessage(candidate: CandidateDocument, questionSet: IQuestionSet): string {
-    const job = questionSet.jobId as any;
+  private buildInProgressStatusMessage(candidate: CandidateDocument, questionSet: IQuestionSet, job: any): string {
     const jobTitle = job ? `${job.title} at ${job.company}` : questionSet.title || "Unknown Job";
     const totalQuestions = questionSet.questions.length;
     const progress = `${candidate.currentStep}/${totalQuestions}`;
