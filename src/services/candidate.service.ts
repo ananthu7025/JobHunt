@@ -16,6 +16,7 @@ interface CandidateData {
   lastName?: string;
   currentStep: number;
   questionSetId: mongoose.Types.ObjectId;
+  jobId: mongoose.Types.ObjectId;
 }
 
 export const CandidateService = {
@@ -112,6 +113,7 @@ export const CandidateService = {
         lastName: candidateData.lastName,
         currentStep: candidateData.currentStep,
         questionSetId: candidateData.questionSetId,
+        jobId: candidateData.jobId,
         responses: {},
         isCompleted: false,
       });
@@ -134,6 +136,7 @@ export const CandidateService = {
         lastName: candidateData.lastName,
         currentStep: candidateData.currentStep,
         questionSetId: candidateData.questionSetId,
+        jobId: candidateData.jobId,
         responses: {},
         isCompleted: false,
       });

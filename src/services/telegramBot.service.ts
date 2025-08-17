@@ -399,7 +399,8 @@ export class TelegramHiringBotService {
         lastName: msg.from?.last_name,
         currentStep: 0,
         questionSetId: questionSet._id,
-      });
+        jobId: questionSet.jobId,
+      } as any);
 
       await this.sendWelcomeMessage(questionSet, msg.chat.id);
       setTimeout(() => this.askNextQuestion(msg.chat.id, candidate, questionSet), 1000);

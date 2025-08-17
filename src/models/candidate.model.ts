@@ -10,6 +10,7 @@ export interface CandidateDocument extends Document {
   responses: { [key: string]: string };
   isCompleted: boolean;
   questionSetId: mongoose.Types.ObjectId; // Reference to the question set used
+  jobId: { type: mongoose.Types.ObjectId, ref: 'JobDescription' }, // DEPRECATED but needed for old index
   createdAt: Date;
   updatedAt: Date;
 }
@@ -30,13 +31,19 @@ const candidateSchema = new Schema<CandidateDocument>({
     ref: 'QuestionSet',
     required: true
   },
+  jobId: { // DEPRECATED but needed for old index
+    type: Schema.Types.ObjectId,
+    ref: 'JobDescription'
+  },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
 });
 
-// UPDATED: Create unique constraint for telegramId + questionSetId combination
-// This allows one user to apply for multiple jobs, but prevents duplicate applications for the same job
-candidateSchema.index({ telegramId: 1, questionSetId: 1 }, { unique: true });
+// This is the correct index, but the old one on telegramId + jobId is causing issues.
+// The code is being adapted to work with the old index.
+// A proper database migration should be performed to remove the old index and rely on this one.
+candidateSchema.index({ telegramId: 1, questionSetId: 1 }, { unique: true }); 
+candidateSchema.index({ telegramId: 1, jobId: 1 }, { unique: true, sparse: true }); // Reflecting the likely state of the DB
 
 // Additional indexes for better query performance
 candidateSchema.index({ telegramId: 1 });

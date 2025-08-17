@@ -16,5 +16,6 @@ router.get('/', JobController.getAllJobs);
 router.get('/:id', JobController.getJobById);
 router.put('/:id', validateRequest(jobSchemas.update), JobController.updateJob);
 router.delete('/:id', JobController.deleteJob);
+router.get('/:id/questionset', authenticateToken, JobController.getJobQuestionSet);
 
 export { router as jobRoutes };

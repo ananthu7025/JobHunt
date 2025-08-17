@@ -7,9 +7,9 @@ const questionSchema = new Schema<IQuestion>({
   field: { type: String, required: true },
   question: { type: String, required: true },
   validation: {
-    type: { 
-      type: String, 
-      enum: ['text', 'email', 'phone', 'number', 'url', 'custom'],
+    type: {
+       type: String,
+       enum: ['text', 'email', 'phone', 'number', 'url', 'custom'],
       default: 'text'
     },
     minLength: { type: Number, default: 1 },
@@ -26,18 +26,20 @@ const questionSetSchema = new Schema<IQuestionSet>({
   jobId: {
     type: Schema.Types.ObjectId,
     ref: 'JobDescription',
-    required: true,
+    required: false, // Changed to false to allow default question sets
+    default: null
   },
   questions: [questionSchema],
   isActive: { type: Boolean, default: true },
   isDefault: { type: Boolean, default: false },
-  createdBy: { 
-    type: Schema.Types.ObjectId, 
-    ref: 'User', 
-    required: true 
-  }
-}, { 
-  timestamps: true 
+  createdBy: {
+     type: Schema.Types.ObjectId,
+     ref: 'User',
+     required: false, // Allow system-created question sets
+     default: null
+   }
+}, {
+   timestamps: true
 });
 
 // Ensure only one default question set exists
@@ -50,5 +52,9 @@ questionSetSchema.pre('save', async function(next) {
   }
   next();
 });
+
+// Index for better performance when querying by jobId
+questionSetSchema.index({ jobId: 1, isActive: 1 });
+questionSetSchema.index({ isDefault: 1, isActive: 1 });
 
 export const QuestionSet = mongoose.model<IQuestionSet>('QuestionSet', questionSetSchema);
